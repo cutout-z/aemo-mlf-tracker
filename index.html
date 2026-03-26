@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AEMO MLF Tracker — NEM Generator Loss Factors</title>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<style>
+  :root { --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a; --text: #e0e0e0; --muted: #888; --accent: #4472C4; --green: #63BE7B; --red: #F8696B; --yellow: #FFEB84; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 24px; }
+  h1 { font-size: 1.5rem; margin-bottom: 4px; }
+  .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 20px; }
+
+  .controls { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+  .tab { padding: 8px 18px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 6px 6px 0 0; cursor: pointer; font-size: 0.9rem; transition: all 0.15s; }
+  .tab:hover { color: var(--text); border-color: var(--accent); }
+  .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .filters { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+  select, input[type="text"] { padding: 6px 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 4px; font-size: 0.85rem; }
+  input[type="text"] { width: 200px; }
+
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; max-height: 75vh; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
+  th { background: var(--accent); color: #fff; padding: 8px 10px; text-align: center; position: sticky; top: 0; white-space: nowrap; z-index: 1; cursor: pointer; }
+  th:first-child { text-align: left; }
+  th:hover { background: #3a62a4; }
+  th.sorted-asc::after { content: " ▲"; }
+  th.sorted-desc::after { content: " ▼"; }
+  td { padding: 6px 10px; text-align: center; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td:first-child { text-align: left; font-weight: 500; }
+  td:nth-child(2) { text-align: left; }
+  tr:hover td { background: rgba(68,114,196,0.08); }
+
+  .mlf-cell { font-variant-numeric: tabular-nums; }
+  .change-pos { color: #63BE7B; }
+  .change-neg { color: #F8696B; }
+  .change-neutral { color: var(--muted); }
+
+  .stats { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 18px; min-width: 140px; }
+  .stat-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; }
+  .stat-value { font-size: 1.3rem; font-weight: 600; margin-top: 2px; }
+
+  .downloads { margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .dl-btn { display: inline-block; padding: 8px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--accent); text-decoration: none; font-size: 0.85rem; transition: all 0.15s; }
+  .dl-btn:hover { background: var(--accent); color: #fff; }
+  .footer { margin-top: 24px; color: var(--muted); font-size: 0.78rem; }
+  .loading { text-align: center; padding: 40px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>AEMO MLF Tracker</h1>
+<p class="subtitle">Marginal Loss Factors for NEM generator assets by financial year — tracking trends and degradation</p>
+
+<div class="stats" id="stats"></div>
+
+<div class="controls">
+  <div class="tabs" id="tabs"></div>
+  <div class="filters">
+    <select id="fuelFilter"><option value="">All Fuel Types</option></select>
+    <input type="text" id="search" placeholder="Search DUID or station...">
+  </div>
+</div>
+
+<div class="table-wrap"><div class="loading" id="loading">Loading data...</div><table id="table" style="display:none"><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
+
+<div class="downloads" id="downloads"></div>
+<div class="footer" id="footer"></div>
+
+<script>
+const REGIONS = {NSW1:'NSW',QLD1:'QLD',VIC1:'VIC',SA1:'SA',TAS1:'TAS'};
+const EXCEL_FILES = {NSW1:'NSW_mlf.xlsx',QLD1:'QLD_mlf.xlsx',VIC1:'VIC_mlf.xlsx',SA1:'SA_mlf.xlsx',TAS1:'TAS_mlf.xlsx'};
+
+let allData = [];
+let fyCols = [];
+let activeRegion = 'NSW1';
+let sortCol = null;
+let sortDir = 'asc';
+
+function mlfColor(val) {
+  if (val === '' || val === null || isNaN(val)) return '';
+  // Scale: 0.80 (red) → 0.95 (yellow) → 1.05 (green)
+  const lo = 0.80, mid = 0.95, hi = 1.05;
+  const v = Math.max(lo, Math.min(hi, val));
+  let r, g, b;
+  if (v <= mid) {
+    const t = (v - lo) / (mid - lo);
+    r = Math.round(248 + (255 - 248) * t);
+    g = Math.round(105 + (235 - 105) * t);
+    b = Math.round(107 + (132 - 107) * t);
+  } else {
+    const t = (v - mid) / (hi - mid);
+    r = Math.round(255 + (99 - 255) * t);
+    g = Math.round(235 + (190 - 235) * t);
+    b = Math.round(132 + (123 - 132) * t);
+  }
+  return `rgb(${r},${g},${b})`;
+}
+
+function textColor(val) {
+  if (val === '' || val === null || isNaN(val)) return '';
+  return val >= 0.85 && val <= 1.02 ? '#1a1a1a' : '#e0e0e0';
+}
+
+function changeClass(val) {
+  if (val === '' || val === null || isNaN(val)) return 'change-neutral';
+  return val > 0 ? 'change-pos' : val < 0 ? 'change-neg' : 'change-neutral';
+}
+
+function getFiltered() {
+  const fuel = document.getElementById('fuelFilter').value;
+  const search = document.getElementById('search').value.toLowerCase();
+  let rows = allData.filter(r => r.REGIONID === activeRegion);
+  if (fuel) rows = rows.filter(r => r.FUEL_CATEGORY === fuel);
+  if (search) rows = rows.filter(r =>
+    (r.DUID || '').toLowerCase().includes(search) ||
+    (r.STATION_NAME || '').toLowerCase().includes(search)
+  );
+  if (sortCol) {
+    rows.sort((a, b) => {
+      let va = a[sortCol], vb = b[sortCol];
+      const na = parseFloat(va), nb = parseFloat(vb);
+      if (!isNaN(na) && !isNaN(nb)) { va = na; vb = nb; }
+      if (va === '' || va === undefined) return 1;
+      if (vb === '' || vb === undefined) return -1;
+      if (va < vb) return sortDir === 'asc' ? -1 : 1;
+      if (va > vb) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }
+  return rows;
+}
+
+function renderStats() {
+  const rows = allData.filter(r => r.REGIONID === activeRegion);
+  const latest = fyCols[fyCols.length - 1];
+  const vals = rows.map(r => parseFloat(r[latest])).filter(v => !isNaN(v));
+  const avg = vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(4) : '-';
+  const min = vals.length ? Math.min(...vals).toFixed(4) : '-';
+  const below90 = vals.filter(v => v < 0.9).length;
+  const yoyVals = rows.map(r => parseFloat(r.YOY_CHANGE)).filter(v => !isNaN(v));
+  const avgYoy = yoyVals.length ? (yoyVals.reduce((a, b) => a + b, 0) / yoyVals.length).toFixed(4) : '-';
+
+  document.getElementById('stats').innerHTML = `
+    <div class="stat-card"><div class="stat-label">Generators</div><div class="stat-value">${vals.length}</div></div>
+    <div class="stat-card"><div class="stat-label">Avg MLF (${latest})</div><div class="stat-value">${avg}</div></div>
+    <div class="stat-card"><div class="stat-label">Lowest MLF</div><div class="stat-value" style="color:var(--red)">${min}</div></div>
+    <div class="stat-card"><div class="stat-label">Below 0.90</div><div class="stat-value" style="color:${below90 > 0 ? 'var(--red)' : 'var(--green)'}">${below90}</div></div>
+    <div class="stat-card"><div class="stat-label">Avg YoY Change</div><div class="stat-value" class="${changeClass(parseFloat(avgYoy))}">${avgYoy}</div></div>
+  `;
+}
+
+function renderTabs() {
+  const container = document.getElementById('tabs');
+  container.innerHTML = '';
+  for (const [id, name] of Object.entries(REGIONS)) {
+    const btn = document.createElement('button');
+    btn.className = 'tab' + (id === activeRegion ? ' active' : '');
+    btn.textContent = name;
+    btn.onclick = () => { activeRegion = id; renderTabs(); renderStats(); renderTable(); };
+    container.appendChild(btn);
+  }
+}
+
+function renderTable() {
+  const thead = document.getElementById('thead');
+  const tbody = document.getElementById('tbody');
+
+  const metaCols = ['DUID', 'STATION_NAME', 'FUEL_CATEGORY', 'CAPACITY_MW'];
+  const metaLabels = ['DUID', 'Station', 'Fuel', 'MW'];
+  const extraCols = ['YOY_CHANGE', 'YOY_PCT_CHANGE'];
+  const extraLabels = ['YoY', 'YoY %'];
+
+  const allCols = [...metaCols, ...fyCols, ...extraCols];
+  const allLabels = [...metaLabels, ...fyCols, ...extraLabels];
+
+  thead.innerHTML = '<tr>' + allLabels.map((l, i) => {
+    const col = allCols[i];
+    const cls = col === sortCol ? (sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc') : '';
+    return `<th class="${cls}" data-col="${col}">${l}</th>`;
+  }).join('') + '</tr>';
+
+  // Add sort handlers
+  thead.querySelectorAll('th').forEach(th => {
+    th.onclick = () => {
+      const col = th.dataset.col;
+      if (sortCol === col) { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; }
+      else { sortCol = col; sortDir = 'asc'; }
+      renderTable();
+    };
+  });
+
+  const rows = getFiltered();
+  tbody.innerHTML = rows.map(row => {
+    const cells = [];
+    // Meta cells
+    cells.push(`<td>${row.DUID || ''}</td>`);
+    cells.push(`<td>${row.STATION_NAME || ''}</td>`);
+    cells.push(`<td>${row.FUEL_CATEGORY || ''}</td>`);
+    const cap = parseFloat(row.CAPACITY_MW);
+    cells.push(`<td>${isNaN(cap) ? '' : cap.toFixed(0)}</td>`);
+
+    // FY cells with heatmap
+    fyCols.forEach(fy => {
+      const val = parseFloat(row[fy]);
+      if (isNaN(val)) {
+        cells.push('<td class="mlf-cell">-</td>');
+      } else {
+        const bg = mlfColor(val);
+        const fg = textColor(val);
+        cells.push(`<td class="mlf-cell" style="background:${bg};color:${fg}">${val.toFixed(4)}</td>`);
+      }
+    });
+
+    // YoY cells
+    const yoy = parseFloat(row.YOY_CHANGE);
+    const yoyPct = parseFloat(row.YOY_PCT_CHANGE);
+    cells.push(`<td class="${changeClass(yoy)}">${isNaN(yoy) ? '-' : (yoy > 0 ? '+' : '') + yoy.toFixed(4)}</td>`);
+    cells.push(`<td class="${changeClass(yoyPct)}">${isNaN(yoyPct) ? '-' : (yoyPct > 0 ? '+' : '') + yoyPct.toFixed(2) + '%'}</td>`);
+
+    return `<tr>${cells.join('')}</tr>`;
+  }).join('');
+
+  document.getElementById('table').style.display = '';
+  document.getElementById('loading').style.display = 'none';
+}
+
+function renderDownloads() {
+  const container = document.getElementById('downloads');
+  container.innerHTML = '<strong style="width:100%;margin-bottom:4px">Download Excel:&nbsp;</strong>' +
+    Object.entries(REGIONS).map(([id, name]) =>
+      `<a class="dl-btn" href="outputs/${EXCEL_FILES[id]}" download>${name}</a>`
+    ).join('') +
+    `<a class="dl-btn" href="outputs/summary.csv" download>CSV</a>`;
+}
+
+function populateFuelFilter() {
+  const fuels = [...new Set(allData.map(r => r.FUEL_CATEGORY).filter(Boolean))].sort();
+  const sel = document.getElementById('fuelFilter');
+  fuels.forEach(f => {
+    const opt = document.createElement('option');
+    opt.value = f;
+    opt.textContent = f;
+    sel.appendChild(opt);
+  });
+  sel.onchange = () => { renderStats(); renderTable(); };
+}
+
+document.getElementById('search').oninput = () => renderTable();
+
+Papa.parse('outputs/summary.csv', {
+  download: true,
+  header: true,
+  skipEmptyLines: true,
+  complete: function(results) {
+    allData = results.data;
+    // Detect FY columns
+    fyCols = Object.keys(allData[0] || {}).filter(k => k.startsWith('FY')).sort();
+    // Default sort by latest FY ascending
+    if (fyCols.length) { sortCol = fyCols[fyCols.length - 1]; sortDir = 'asc'; }
+
+    document.getElementById('footer').textContent =
+      `${allData.length} generators tracked · FY${fyCols[0]?.slice(2) || '?'} to FY${fyCols[fyCols.length-1]?.slice(2) || '?'} · Source: AEMO DUDETAILSUMMARY via MMSDM Archive`;
+
+    populateFuelFilter();
+    renderTabs();
+    renderStats();
+    renderTable();
+    renderDownloads();
+  },
+  error: function() {
+    document.getElementById('loading').textContent = 'Failed to load data. Check that outputs/summary.csv exists.';
+  }
+});
+</script>
+</body>
+</html>

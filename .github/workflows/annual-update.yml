@@ -1,0 +1,47 @@
+name: Annual MLF Update
+
+on:
+  schedule:
+    # July 15 — new FY final MLFs take effect July 1
+    - cron: '0 0 15 7 *'
+    # October 15 — indicative MLFs typically published
+    - cron: '0 0 15 10 *'
+  workflow_dispatch:
+    inputs:
+      full_refresh:
+        description: 'Re-download all data from scratch'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run MLF Tracker
+        run: |
+          if [ "${{ github.event.inputs.full_refresh }}" = "true" ]; then
+            python -m src.main --full-refresh
+          else
+            python -m src.main
+          fi
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add outputs/ data/*.feather
+          git diff --staged --quiet || git commit -m "Update MLF data"
+          git push
