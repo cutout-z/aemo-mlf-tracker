@@ -77,10 +77,12 @@ def compute_yoy_changes(fy_mlfs: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None) -> pd.DataFrame:
+def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
+                  indicative: pd.DataFrame | None = None) -> pd.DataFrame:
     """Build the master summary: pivot FYs to columns, merge generator metadata.
 
     Returns a wide-format DataFrame: one row per DUID with FY columns.
+    If indicative data is provided, adds a draft FY column (e.g. "FY26-27 (Draft)").
     """
     df = compute_yoy_changes(fy_mlfs)
 
@@ -93,7 +95,7 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None)
     meta = latest[["DUID", "REGIONID", "CONNECTIONPOINTID", "STATIONID"]].set_index("DUID")
     result = meta.join(pivot)
 
-    # Compute latest YoY change
+    # Compute latest YoY change (final FYs only)
     fy_cols = sorted([c for c in pivot.columns if c.startswith("FY")])
     if len(fy_cols) >= 2:
         current_fy = fy_cols[-1]
@@ -104,6 +106,18 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None)
         result["YOY_PCT_CHANGE"] = (
             result["YOY_CHANGE"] / result["PREV_MLF"] * 100
         ).round(2)
+
+    # Merge indicative/draft MLFs if available
+    draft_col = None
+    if indicative is not None and not indicative.empty:
+        from .indicative import get_indicative_fy
+        next_fy_start, fy_label, _ = get_indicative_fy()
+        draft_col = f"FY{next_fy_start % 100:02d}-{(next_fy_start + 1) % 100:02d} (Draft)"
+        ind = indicative.set_index("DUID")[["INDICATIVE_MLF"]].rename(
+            columns={"INDICATIVE_MLF": draft_col}
+        )
+        result = result.join(ind, how="left")
+        logger.info(f"Added indicative column '{draft_col}' ({indicative['DUID'].nunique()} DUIDs)")
 
     # Merge generator metadata if available
     if generators is not None and not generators.empty:
@@ -121,5 +135,6 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None)
         sort_cols.append("LATEST_MLF")
     result = result.sort_values(sort_cols).reset_index(drop=True)
 
-    logger.info(f"Built summary: {len(result)} DUIDs × {len(fy_cols)} FYs")
+    total_cols = len(fy_cols) + (1 if draft_col else 0)
+    logger.info(f"Built summary: {len(result)} DUIDs × {total_cols} FY columns")
     return result
