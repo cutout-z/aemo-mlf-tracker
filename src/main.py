@@ -10,6 +10,7 @@ import pandas as pd
 from . import config
 from .download import download_dudetailsummary, get_latest_available_month
 from .generators import fetch_generator_metadata
+from .indicative import download_draft_mlfs, get_indicative_fy
 from .analyse import extract_fy_mlfs, build_summary
 from .excel_output import generate_all_workbooks
 
@@ -70,15 +71,18 @@ def run(full_refresh: bool = False):
         logger.error("No FY-level MLF data extracted. Exiting.")
         sys.exit(1)
 
-    # Step 5: Build summary (wide format with metadata)
-    summary = build_summary(fy_mlfs, generators)
+    # Step 5: Fetch indicative/draft MLFs for upcoming FY
+    indicative = download_draft_mlfs(cache_dir)
 
-    # Step 6: Save outputs
+    # Step 6: Build summary (wide format with metadata)
+    summary = build_summary(fy_mlfs, generators, indicative)
+
+    # Step 7: Save outputs
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary.to_csv(summary_path, index=False)
     logger.info(f"Saved summary.csv ({len(summary)} rows)")
 
-    # Step 7: Generate Excel workbooks
+    # Step 8: Generate Excel workbooks
     generate_all_workbooks(summary, output_dir)
 
     logger.info("Done.")

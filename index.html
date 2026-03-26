@@ -42,6 +42,9 @@
   .cb { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
 
   .mlf-cell { font-variant-numeric: tabular-nums; }
+  .draft-header { background: #5a4a8a !important; }
+  .draft-header:hover { background: #4a3a7a !important; }
+  .draft-cell { border-left: 2px dashed #7b68ae; }
   .change-pos { color: #63BE7B; }
   .change-neg { color: #F8696B; }
   .change-neutral { color: var(--muted); }
@@ -97,7 +100,8 @@ const REGIONS = {NSW1:'NSW',QLD1:'QLD',VIC1:'VIC',SA1:'SA',TAS1:'TAS'};
 const EXCEL_FILES = {NSW1:'NSW_mlf.xlsx',QLD1:'QLD_mlf.xlsx',VIC1:'VIC_mlf.xlsx',SA1:'SA_mlf.xlsx',TAS1:'TAS_mlf.xlsx'};
 
 let allData = [];
-let fyCols = [];
+let fyCols = [];     // final FY columns
+let draftCols = [];  // draft/indicative FY columns
 let activeRegion = 'ALL';
 let sortCol = null;
 let sortDir = 'asc';
@@ -260,8 +264,9 @@ function renderTable() {
   const extraCols = ['YOY_CHANGE', 'YOY_PCT_CHANGE'];
   const extraLabels = ['YoY', 'YoY %'];
 
-  const allCols = [...metaCols, ...fyCols, ...extraCols];
-  const allLabels = [...metaLabels, ...fyCols, ...extraLabels];
+  const allFyCols = [...fyCols, ...draftCols];
+  const allCols = [...metaCols, ...allFyCols, ...extraCols];
+  const allLabels = [...metaLabels, ...allFyCols, ...extraLabels];
 
   const rows = getFiltered();
   const allChecked = rows.length > 0 && rows.every(r => selected.has(r.DUID));
@@ -270,8 +275,9 @@ function renderTable() {
     (allChecked ? 'checked' : '') + '></th>' +
     allLabels.map((l, i) => {
       const col = allCols[i];
-      const cls = col === sortCol ? (sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc') : '';
-      return `<th class="${cls}" data-col="${col}">${l}</th>`;
+      const sortCls = col === sortCol ? (sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc') : '';
+      const draftCls = col.includes('Draft') ? ' draft-header' : '';
+      return `<th class="${sortCls}${draftCls}" data-col="${col}">${l}</th>`;
     }).join('') + '</tr>';
 
   // Select-all handler
@@ -309,15 +315,16 @@ function renderTable() {
     const cap = parseFloat(row.CAPACITY_MW);
     cells.push(`<td>${isNaN(cap) ? '' : cap.toFixed(0)}</td>`);
 
-    // FY cells with heatmap
-    fyCols.forEach(fy => {
+    // FY cells with heatmap (final + draft)
+    allFyCols.forEach(fy => {
       const val = parseFloat(row[fy]);
+      const isDraft = fy.includes('Draft');
       if (isNaN(val)) {
-        cells.push('<td class="mlf-cell">-</td>');
+        cells.push(`<td class="mlf-cell${isDraft ? ' draft-cell' : ''}">-</td>`);
       } else {
         const bg = mlfColor(val);
         const fg = textColor(val);
-        cells.push(`<td class="mlf-cell" style="background:${bg};color:${fg}">${val.toFixed(4)}</td>`);
+        cells.push(`<td class="mlf-cell${isDraft ? ' draft-cell' : ''}" style="background:${bg};color:${fg}">${val.toFixed(4)}</td>`);
       }
     });
 
@@ -348,10 +355,11 @@ function exportSelectedToExcel() {
   const selectedRows = allData.filter(r => selected.has(r.DUID));
 
   // Build export columns
+  const allFyExport = [...fyCols, ...draftCols];
   const exportCols = ['DUID', 'STATION_NAME', 'REGIONID', 'FUEL_CATEGORY',
-                      'TECHNOLOGY', 'CAPACITY_MW', ...fyCols, 'YOY_CHANGE', 'YOY_PCT_CHANGE'];
+                      'TECHNOLOGY', 'CAPACITY_MW', ...allFyExport, 'YOY_CHANGE', 'YOY_PCT_CHANGE'];
   const headers = ['DUID', 'Station', 'Region', 'Fuel Type',
-                    'Technology', 'Capacity (MW)', ...fyCols, 'YoY Change', 'YoY %'];
+                    'Technology', 'Capacity (MW)', ...allFyExport, 'YoY Change', 'YoY %'];
 
   const wsData = [headers];
   selectedRows.forEach(row => {
@@ -424,7 +432,9 @@ Papa.parse('outputs/summary.csv', {
   skipEmptyLines: true,
   complete: function(results) {
     allData = results.data;
-    fyCols = Object.keys(allData[0] || {}).filter(k => k.startsWith('FY')).sort();
+    const allFyKeys = Object.keys(allData[0] || {}).filter(k => k.startsWith('FY')).sort();
+    fyCols = allFyKeys.filter(k => !k.includes('Draft'));
+    draftCols = allFyKeys.filter(k => k.includes('Draft'));
     if (fyCols.length) { sortCol = fyCols[fyCols.length - 1]; sortDir = 'asc'; }
 
     document.getElementById('footer').textContent =
