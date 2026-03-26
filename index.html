@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AEMO MLF Tracker — NEM Generator Loss Factors</title>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   :root { --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a; --text: #e0e0e0; --muted: #888; --accent: #4472C4; --green: #63BE7B; --red: #F8696B; --yellow: #FFEB84; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -25,14 +26,20 @@
   .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; max-height: 75vh; }
   table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
   th { background: var(--accent); color: #fff; padding: 8px 10px; text-align: center; position: sticky; top: 0; white-space: nowrap; z-index: 1; cursor: pointer; }
-  th:first-child { text-align: left; }
+  th:first-child { text-align: center; width: 40px; cursor: default; }
+  th:nth-child(2) { text-align: left; }
   th:hover { background: #3a62a4; }
-  th.sorted-asc::after { content: " ▲"; }
-  th.sorted-desc::after { content: " ▼"; }
+  th:first-child:hover { background: var(--accent); }
+  th.sorted-asc::after { content: " \u25B2"; }
+  th.sorted-desc::after { content: " \u25BC"; }
   td { padding: 6px 10px; text-align: center; border-bottom: 1px solid var(--border); white-space: nowrap; }
-  td:first-child { text-align: left; font-weight: 500; }
-  td:nth-child(2) { text-align: left; }
+  td:first-child { text-align: center; width: 40px; }
+  td:nth-child(2) { text-align: left; font-weight: 500; }
+  td:nth-child(3) { text-align: left; }
   tr:hover td { background: rgba(68,114,196,0.08); }
+  tr.selected td { background: rgba(68,114,196,0.18); }
+
+  .cb { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
 
   .mlf-cell { font-variant-numeric: tabular-nums; }
   .change-pos { color: #63BE7B; }
@@ -43,6 +50,13 @@
   .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 18px; min-width: 140px; }
   .stat-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; }
   .stat-value { font-size: 1.3rem; font-weight: 600; margin-top: 2px; }
+
+  .actions { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .action-btn { padding: 8px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--accent); font-size: 0.85rem; cursor: pointer; transition: all 0.15s; }
+  .action-btn:hover { background: var(--accent); color: #fff; }
+  .action-btn:disabled { opacity: 0.4; cursor: default; }
+  .action-btn:disabled:hover { background: var(--surface); color: var(--accent); }
+  .sel-count { color: var(--muted); font-size: 0.85rem; }
 
   .downloads { margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap; }
   .dl-btn { display: inline-block; padding: 8px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--accent); text-decoration: none; font-size: 0.85rem; transition: all 0.15s; }
@@ -61,9 +75,16 @@
 <div class="controls">
   <div class="tabs" id="tabs"></div>
   <div class="filters">
+    <select id="regionFilter" style="display:none"><option value="">All Regions</option></select>
     <select id="fuelFilter"><option value="">All Fuel Types</option></select>
     <input type="text" id="search" placeholder="Search DUID or station...">
   </div>
+</div>
+
+<div class="actions" id="actions">
+  <button class="action-btn" id="exportSelected" disabled>Export Selected to Excel</button>
+  <button class="action-btn" id="clearSelection" style="display:none">Clear Selection</button>
+  <span class="sel-count" id="selCount"></span>
 </div>
 
 <div class="table-wrap"><div class="loading" id="loading">Loading data...</div><table id="table" style="display:none"><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
@@ -77,13 +98,13 @@ const EXCEL_FILES = {NSW1:'NSW_mlf.xlsx',QLD1:'QLD_mlf.xlsx',VIC1:'VIC_mlf.xlsx'
 
 let allData = [];
 let fyCols = [];
-let activeRegion = 'NSW1';
+let activeRegion = 'ALL';
 let sortCol = null;
 let sortDir = 'asc';
+let selected = new Set(); // stores DUIDs
 
 function mlfColor(val) {
   if (val === '' || val === null || isNaN(val)) return '';
-  // Scale: 0.80 (red) → 0.95 (yellow) → 1.05 (green)
   const lo = 0.80, mid = 0.95, hi = 1.05;
   const v = Math.max(lo, Math.min(hi, val));
   let r, g, b;
@@ -111,10 +132,21 @@ function changeClass(val) {
   return val > 0 ? 'change-pos' : val < 0 ? 'change-neg' : 'change-neutral';
 }
 
+function getBaseRows() {
+  let rows = allData;
+  if (activeRegion !== 'ALL') {
+    rows = rows.filter(r => r.REGIONID === activeRegion);
+  } else {
+    const regionVal = document.getElementById('regionFilter').value;
+    if (regionVal) rows = rows.filter(r => r.REGIONID === regionVal);
+  }
+  return rows;
+}
+
 function getFiltered() {
   const fuel = document.getElementById('fuelFilter').value;
   const search = document.getElementById('search').value.toLowerCase();
-  let rows = allData.filter(r => r.REGIONID === activeRegion);
+  let rows = getBaseRows();
   if (fuel) rows = rows.filter(r => r.FUEL_CATEGORY === fuel);
   if (search) rows = rows.filter(r =>
     (r.DUID || '').toLowerCase().includes(search) ||
@@ -136,7 +168,7 @@ function getFiltered() {
 }
 
 function renderStats() {
-  const rows = allData.filter(r => r.REGIONID === activeRegion);
+  const rows = getBaseRows();
   const latest = fyCols[fyCols.length - 1];
   const vals = rows.map(r => parseFloat(r[latest])).filter(v => !isNaN(v));
   const avg = vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(4) : '-';
@@ -150,42 +182,103 @@ function renderStats() {
     <div class="stat-card"><div class="stat-label">Avg MLF (${latest})</div><div class="stat-value">${avg}</div></div>
     <div class="stat-card"><div class="stat-label">Lowest MLF</div><div class="stat-value" style="color:var(--red)">${min}</div></div>
     <div class="stat-card"><div class="stat-label">Below 0.90</div><div class="stat-value" style="color:${below90 > 0 ? 'var(--red)' : 'var(--green)'}">${below90}</div></div>
-    <div class="stat-card"><div class="stat-label">Avg YoY Change</div><div class="stat-value" class="${changeClass(parseFloat(avgYoy))}">${avgYoy}</div></div>
+    <div class="stat-card"><div class="stat-label">Avg YoY Change</div><div class="stat-value">${avgYoy}</div></div>
   `;
 }
 
 function renderTabs() {
   const container = document.getElementById('tabs');
   container.innerHTML = '';
+
+  // "All" tab first
+  const allBtn = document.createElement('button');
+  allBtn.className = 'tab' + (activeRegion === 'ALL' ? ' active' : '');
+  allBtn.textContent = 'All';
+  allBtn.onclick = () => {
+    activeRegion = 'ALL';
+    document.getElementById('regionFilter').style.display = '';
+    renderTabs(); renderStats(); renderTable();
+  };
+  container.appendChild(allBtn);
+
   for (const [id, name] of Object.entries(REGIONS)) {
     const btn = document.createElement('button');
     btn.className = 'tab' + (id === activeRegion ? ' active' : '');
     btn.textContent = name;
-    btn.onclick = () => { activeRegion = id; renderTabs(); renderStats(); renderTable(); };
+    btn.onclick = () => {
+      activeRegion = id;
+      document.getElementById('regionFilter').style.display = 'none';
+      document.getElementById('regionFilter').value = '';
+      renderTabs(); renderStats(); renderTable();
+    };
     container.appendChild(btn);
   }
+}
+
+function updateSelectionUI() {
+  const n = selected.size;
+  document.getElementById('exportSelected').disabled = n === 0;
+  document.getElementById('clearSelection').style.display = n > 0 ? '' : 'none';
+  document.getElementById('selCount').textContent = n > 0 ? `${n} asset${n > 1 ? 's' : ''} selected` : '';
+}
+
+function toggleSelect(duid) {
+  if (selected.has(duid)) selected.delete(duid); else selected.add(duid);
+  updateSelectionUI();
+  // Update checkbox and row highlight without full re-render
+  const row = document.querySelector(`tr[data-duid="${duid}"]`);
+  if (row) {
+    row.classList.toggle('selected', selected.has(duid));
+    const cb = row.querySelector('.cb');
+    if (cb) cb.checked = selected.has(duid);
+  }
+}
+
+function toggleSelectAll() {
+  const rows = getFiltered();
+  const allSelected = rows.every(r => selected.has(r.DUID));
+  if (allSelected) {
+    rows.forEach(r => selected.delete(r.DUID));
+  } else {
+    rows.forEach(r => selected.add(r.DUID));
+  }
+  updateSelectionUI();
+  renderTable();
 }
 
 function renderTable() {
   const thead = document.getElementById('thead');
   const tbody = document.getElementById('tbody');
 
-  const metaCols = ['DUID', 'STATION_NAME', 'FUEL_CATEGORY', 'CAPACITY_MW'];
-  const metaLabels = ['DUID', 'Station', 'Fuel', 'MW'];
+  const showRegionCol = activeRegion === 'ALL';
+  const metaCols = showRegionCol
+    ? ['DUID', 'STATION_NAME', 'REGIONID', 'FUEL_CATEGORY', 'CAPACITY_MW']
+    : ['DUID', 'STATION_NAME', 'FUEL_CATEGORY', 'CAPACITY_MW'];
+  const metaLabels = showRegionCol
+    ? ['DUID', 'Station', 'Region', 'Fuel', 'MW']
+    : ['DUID', 'Station', 'Fuel', 'MW'];
   const extraCols = ['YOY_CHANGE', 'YOY_PCT_CHANGE'];
   const extraLabels = ['YoY', 'YoY %'];
 
   const allCols = [...metaCols, ...fyCols, ...extraCols];
   const allLabels = [...metaLabels, ...fyCols, ...extraLabels];
 
-  thead.innerHTML = '<tr>' + allLabels.map((l, i) => {
-    const col = allCols[i];
-    const cls = col === sortCol ? (sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc') : '';
-    return `<th class="${cls}" data-col="${col}">${l}</th>`;
-  }).join('') + '</tr>';
+  const rows = getFiltered();
+  const allChecked = rows.length > 0 && rows.every(r => selected.has(r.DUID));
 
-  // Add sort handlers
-  thead.querySelectorAll('th').forEach(th => {
+  thead.innerHTML = '<tr><th><input type="checkbox" class="cb" id="selectAll" ' +
+    (allChecked ? 'checked' : '') + '></th>' +
+    allLabels.map((l, i) => {
+      const col = allCols[i];
+      const cls = col === sortCol ? (sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc') : '';
+      return `<th class="${cls}" data-col="${col}">${l}</th>`;
+    }).join('') + '</tr>';
+
+  // Select-all handler
+  document.getElementById('selectAll').onchange = toggleSelectAll;
+
+  // Sort handlers
+  thead.querySelectorAll('th[data-col]').forEach(th => {
     th.onclick = () => {
       const col = th.dataset.col;
       if (sortCol === col) { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; }
@@ -194,13 +287,25 @@ function renderTable() {
     };
   });
 
-  const rows = getFiltered();
   tbody.innerHTML = rows.map(row => {
+    const duid = row.DUID || '';
+    const isSelected = selected.has(duid);
     const cells = [];
-    // Meta cells
-    cells.push(`<td>${row.DUID || ''}</td>`);
+
+    // Checkbox
+    cells.push(`<td><input type="checkbox" class="cb" ${isSelected ? 'checked' : ''} data-duid="${duid}"></td>`);
+
+    // DUID
+    cells.push(`<td>${duid}</td>`);
+    // Station
     cells.push(`<td>${row.STATION_NAME || ''}</td>`);
+    // Region (only in All tab)
+    if (showRegionCol) {
+      cells.push(`<td>${REGIONS[row.REGIONID] || row.REGIONID || ''}</td>`);
+    }
+    // Fuel
     cells.push(`<td>${row.FUEL_CATEGORY || ''}</td>`);
+    // MW
     const cap = parseFloat(row.CAPACITY_MW);
     cells.push(`<td>${isNaN(cap) ? '' : cap.toFixed(0)}</td>`);
 
@@ -222,11 +327,58 @@ function renderTable() {
     cells.push(`<td class="${changeClass(yoy)}">${isNaN(yoy) ? '-' : (yoy > 0 ? '+' : '') + yoy.toFixed(4)}</td>`);
     cells.push(`<td class="${changeClass(yoyPct)}">${isNaN(yoyPct) ? '-' : (yoyPct > 0 ? '+' : '') + yoyPct.toFixed(2) + '%'}</td>`);
 
-    return `<tr>${cells.join('')}</tr>`;
+    return `<tr data-duid="${duid}" class="${isSelected ? 'selected' : ''}">${cells.join('')}</tr>`;
   }).join('');
+
+  // Checkbox click handlers (event delegation)
+  tbody.querySelectorAll('.cb').forEach(cb => {
+    cb.onchange = (e) => {
+      e.stopPropagation();
+      toggleSelect(cb.dataset.duid);
+    };
+  });
 
   document.getElementById('table').style.display = '';
   document.getElementById('loading').style.display = 'none';
+  updateSelectionUI();
+}
+
+function exportSelectedToExcel() {
+  if (selected.size === 0) return;
+  const selectedRows = allData.filter(r => selected.has(r.DUID));
+
+  // Build export columns
+  const exportCols = ['DUID', 'STATION_NAME', 'REGIONID', 'FUEL_CATEGORY',
+                      'TECHNOLOGY', 'CAPACITY_MW', ...fyCols, 'YOY_CHANGE', 'YOY_PCT_CHANGE'];
+  const headers = ['DUID', 'Station', 'Region', 'Fuel Type',
+                    'Technology', 'Capacity (MW)', ...fyCols, 'YoY Change', 'YoY %'];
+
+  const wsData = [headers];
+  selectedRows.forEach(row => {
+    wsData.push(exportCols.map(col => {
+      const val = row[col];
+      if (col === 'REGIONID') return REGIONS[val] || val || '';
+      const num = parseFloat(val);
+      return isNaN(num) ? (val || '') : num;
+    }));
+  });
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  // Set column widths
+  ws['!cols'] = [
+    {wch: 14}, {wch: 28}, {wch: 8}, {wch: 14},
+    {wch: 22}, {wch: 12},
+    ...fyCols.map(() => ({wch: 10})),
+    {wch: 11}, {wch: 9}
+  ];
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Selected Assets');
+  const filename = selected.size === 1
+    ? `MLF_${selectedRows[0].DUID}.xlsx`
+    : `MLF_${selected.size}_assets.xlsx`;
+  XLSX.writeFile(wb, filename);
 }
 
 function renderDownloads() {
@@ -235,22 +387,36 @@ function renderDownloads() {
     Object.entries(REGIONS).map(([id, name]) =>
       `<a class="dl-btn" href="outputs/${EXCEL_FILES[id]}" download>${name}</a>`
     ).join('') +
-    `<a class="dl-btn" href="outputs/summary.csv" download>CSV</a>`;
+    `<a class="dl-btn" href="outputs/summary.csv" download>CSV (All)</a>`;
 }
 
-function populateFuelFilter() {
+function populateFilters() {
   const fuels = [...new Set(allData.map(r => r.FUEL_CATEGORY).filter(Boolean))].sort();
-  const sel = document.getElementById('fuelFilter');
+  const fuelSel = document.getElementById('fuelFilter');
   fuels.forEach(f => {
     const opt = document.createElement('option');
-    opt.value = f;
-    opt.textContent = f;
-    sel.appendChild(opt);
+    opt.value = f; opt.textContent = f;
+    fuelSel.appendChild(opt);
   });
-  sel.onchange = () => { renderStats(); renderTable(); };
+  fuelSel.onchange = () => { renderStats(); renderTable(); };
+
+  // Region filter (visible only on All tab)
+  const regionSel = document.getElementById('regionFilter');
+  Object.entries(REGIONS).forEach(([id, name]) => {
+    const opt = document.createElement('option');
+    opt.value = id; opt.textContent = name;
+    regionSel.appendChild(opt);
+  });
+  regionSel.onchange = () => { renderStats(); renderTable(); };
 }
 
 document.getElementById('search').oninput = () => renderTable();
+document.getElementById('exportSelected').onclick = exportSelectedToExcel;
+document.getElementById('clearSelection').onclick = () => {
+  selected.clear();
+  updateSelectionUI();
+  renderTable();
+};
 
 Papa.parse('outputs/summary.csv', {
   download: true,
@@ -258,15 +424,13 @@ Papa.parse('outputs/summary.csv', {
   skipEmptyLines: true,
   complete: function(results) {
     allData = results.data;
-    // Detect FY columns
     fyCols = Object.keys(allData[0] || {}).filter(k => k.startsWith('FY')).sort();
-    // Default sort by latest FY ascending
     if (fyCols.length) { sortCol = fyCols[fyCols.length - 1]; sortDir = 'asc'; }
 
     document.getElementById('footer').textContent =
-      `${allData.length} generators tracked · FY${fyCols[0]?.slice(2) || '?'} to FY${fyCols[fyCols.length-1]?.slice(2) || '?'} · Source: AEMO DUDETAILSUMMARY via MMSDM Archive`;
+      `${allData.length} generators tracked \u00B7 FY${fyCols[0]?.slice(2) || '?'} to FY${fyCols[fyCols.length-1]?.slice(2) || '?'} \u00B7 Source: AEMO DUDETAILSUMMARY via MMSDM Archive`;
 
-    populateFuelFilter();
+    populateFilters();
     renderTabs();
     renderStats();
     renderTable();
