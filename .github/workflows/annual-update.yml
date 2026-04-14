@@ -38,6 +38,9 @@ jobs:
             python -m src.main
           fi
 
+      - name: Validate outputs
+        run: python tests/validate_outputs.py
+
       - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"

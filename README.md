@@ -39,6 +39,20 @@ python -m src.main              # incremental (uses cache)
 python -m src.main --full-refresh  # re-download everything
 ```
 
+## Output Validation
+
+After the pipeline runs and before committing, an automated validation step (`tests/validate_outputs.py`) checks:
+
+- `summary.csv` exists and has 400+ generators
+- No null DUIDs
+- All 5 NEM regions are present
+- All FY-column MLF values in [0.5, 1.5]
+- LATEST_MLF values in [0.5, 1.5]
+- YOY_CHANGE is consistent with LATEST_MLF - PREV_MLF (within 0.001 tolerance)
+- All 5 regional Excel workbooks exist
+
+If any check fails, the workflow exits before committing — preventing bad data from reaching the dashboard.
+
 ## Data sources
 
 - **DUDETAILSUMMARY** — [AEMO MMSDM Archive](https://nemweb.com.au/Data_Archive/Wholesale_Electricity/MMSDM/)
