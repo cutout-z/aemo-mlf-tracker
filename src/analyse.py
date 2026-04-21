@@ -101,6 +101,33 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
     meta = latest[["DUID", "REGIONID", "CONNECTIONPOINTID", "STATIONID"]].set_index("DUID")
     result = meta.join(pivot)
 
+    # Add stub rows for DUIDs in the final Excel that have no DUDETAILSUMMARY history.
+    # These are either newly commissioned assets (first MLF = current FY) or DUIDs
+    # where AEMO changed the identifier between the registration list and DUDETAILSUMMARY
+    # (e.g. HPR1 vs HPRG1). The final Excel override block below will populate their
+    # current-FY MLF value.
+    if final_excel is not None and not final_excel.empty:
+        new_duids = final_excel.loc[
+            ~final_excel["DUID"].isin(result.index), "DUID"
+        ].tolist()
+        if new_duids:
+            gen_region: dict = {}
+            if generators is not None and "REGION" in generators.columns:
+                gen_region = (
+                    generators.dropna(subset=["DUID"])
+                    .set_index("DUID")["REGION"]
+                    .to_dict()
+                )
+            stubs = pd.DataFrame(
+                {"REGIONID": pd.Series(new_duids).map(gen_region).values},
+                index=pd.Index(new_duids, name="DUID"),
+            )
+            result = pd.concat([result, stubs])
+            logger.info(
+                f"Added {len(new_duids)} stub rows for final-Excel-only DUIDs "
+                f"(newly commissioned or DUID-aliased assets)"
+            )
+
     # Apply final Excel overrides for the current FY column.
     # AEMO publishes the final Excel in April; DUDETAILSUMMARY isn't updated until July.
     # This ensures the current FY column reflects genuine final values, not FY-1 fallbacks.
