@@ -222,6 +222,19 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
             lambda d: "Network Load" if _nl_pattern.search(str(d)) else "Unknown"
         )
 
+    # Flag retired DUIDs: have historical data but nothing in the two most recent FYs.
+    # These are typically old G-suffix battery dispatch DUIDs that AEMO replaced with
+    # BIDIRECTIONAL registration DUIDs during 2024.
+    if len(fy_cols) >= 2:
+        recent_cols = fy_cols[-2:]  # FY25-26 and FY26-27
+        historic_cols = fy_cols[:-2]
+        has_recent = result[recent_cols].notna().any(axis=1)
+        has_historic = result[historic_cols].notna().any(axis=1) if historic_cols else pd.Series(False, index=result.index)
+        result["STATUS"] = "Active"
+        result.loc[has_historic & ~has_recent, "STATUS"] = "Retired"
+    else:
+        result["STATUS"] = "Active"
+
     # Sort by region then latest MLF (ascending = worst MLFs first)
     sort_cols = ["REGIONID"]
     if "LATEST_MLF" in result.columns:
