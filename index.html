@@ -56,6 +56,8 @@
   .type-scheduled { background: rgba(255,200,80,0.15); color: #ffc850; border: 1px solid rgba(255,200,80,0.3); }
   .type-customer { background: rgba(255,160,80,0.15); color: #ffa050; border: 1px solid rgba(255,160,80,0.3); }
   .type-unknown { background: rgba(136,136,136,0.15); color: var(--muted); border: 1px solid rgba(136,136,136,0.25); }
+  .status-retired { opacity: 0.45; }
+  .badge-retired { display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 0.68rem; font-weight: 600; background: rgba(136,136,136,0.2); color: var(--muted); border: 1px solid rgba(136,136,136,0.3); margin-left: 5px; vertical-align: middle; letter-spacing: 0.03em; }
 
   .stats { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
   .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 18px; min-width: 140px; }
@@ -90,6 +92,9 @@
     <select id="typeFilter"><option value="">All Types</option></select>
     <select id="fuelFilter"><option value="">All Fuel Types</option></select>
     <input type="text" id="search" placeholder="Search DUID or station...">
+    <label style="display:flex;align-items:center;gap:5px;font-size:0.82rem;color:var(--muted);cursor:pointer;white-space:nowrap">
+      <input type="checkbox" id="showRetired"> Show retired DUIDs
+    </label>
   </div>
 </div>
 
@@ -160,7 +165,9 @@ function getFiltered() {
   const type = document.getElementById('typeFilter').value;
   const fuel = document.getElementById('fuelFilter').value;
   const search = document.getElementById('search').value.toLowerCase();
+  const showRetired = document.getElementById('showRetired').checked;
   let rows = getBaseRows();
+  if (!showRetired) rows = rows.filter(r => r.STATUS !== 'Retired');
   if (type) rows = rows.filter(r => (r.DUID_TYPE || 'Unknown') === type);
   if (fuel) rows = rows.filter(r => r.FUEL_CATEGORY === fuel);
   if (search) rows = rows.filter(r =>
@@ -307,13 +314,15 @@ function renderTable() {
   tbody.innerHTML = rows.map(row => {
     const duid = row.DUID || '';
     const isSelected = selected.has(duid);
+    const isRetired = row.STATUS === 'Retired';
     const cells = [];
 
     // Checkbox
     cells.push(`<td><input type="checkbox" class="cb" ${isSelected ? 'checked' : ''} data-duid="${duid}"></td>`);
 
     // DUID
-    cells.push(`<td>${duid}</td>`);
+    const retiredBadge = isRetired ? ' <span class="badge-retired">retired</span>' : '';
+    cells.push(`<td>${duid}${retiredBadge}</td>`);
     // Type badge
     const typeVal = row.DUID_TYPE || 'Unknown';
     const typeCls = typeVal === 'Generator' ? 'type-generator'
@@ -354,7 +363,8 @@ function renderTable() {
     cells.push(`<td class="${changeClass(yoy)}">${isNaN(yoy) ? '-' : (yoy > 0 ? '+' : '') + yoy.toFixed(4)}</td>`);
     cells.push(`<td class="${changeClass(yoyPct)}">${isNaN(yoyPct) ? '-' : (yoyPct > 0 ? '+' : '') + yoyPct.toFixed(2) + '%'}</td>`);
 
-    return `<tr data-duid="${duid}" class="${isSelected ? 'selected' : ''}">${cells.join('')}</tr>`;
+    const rowClass = [isSelected ? 'selected' : '', isRetired ? 'status-retired' : ''].filter(Boolean).join(' ');
+    return `<tr data-duid="${duid}" class="${rowClass}">${cells.join('')}</tr>`;
   }).join('');
 
   // Checkbox click handlers (event delegation)
@@ -448,6 +458,7 @@ function populateFilters() {
 }
 
 document.getElementById('search').oninput = () => renderTable();
+document.getElementById('showRetired').onchange = () => renderTable();
 document.getElementById('exportSelected').onclick = exportSelectedToExcel;
 document.getElementById('clearSelection').onclick = () => {
   selected.clear();
