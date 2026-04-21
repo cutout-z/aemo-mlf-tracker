@@ -49,14 +49,25 @@ def run(full_refresh: bool = False):
         detail_df.to_feather(cache_file)
         logger.info(f"Cached DUDETAILSUMMARY to {cache_file}")
 
-    # Step 3: Fetch generator metadata (fuel type, capacity)
+    # Step 3: Fetch generator metadata (fuel type, capacity) + MMSDM station lookup
     gen_cache = PROJECT_ROOT / config.GENERATOR_CACHE
+    station_names = pd.Series(dtype=str)
     if not full_refresh and gen_cache.exists():
         logger.info("Loading cached generator metadata...")
         generators = pd.read_feather(gen_cache)
+        # Still need station_names for enrichment — load from MMSDM cache if present
+        from .generators import fetch_mmsdm_participant_metadata
+        station_cache = PROJECT_ROOT / "data" / "mmsdm_station.feather"
+        if station_cache.exists():
+            _sdf = pd.read_feather(station_cache)
+            station_names = _sdf.set_index("STATIONID")["STATIONNAME"]
     else:
         try:
-            generators = fetch_generator_metadata(cache_dir)
+            generators, station_names = fetch_generator_metadata(
+                cache_dir,
+                mmsdm_year=latest_year,
+                mmsdm_month=latest_month,
+            )
             gen_cache.parent.mkdir(parents=True, exist_ok=True)
             generators.to_feather(gen_cache)
             logger.info(f"Cached generator metadata to {gen_cache}")
@@ -78,7 +89,7 @@ def run(full_refresh: bool = False):
     indicative = download_draft_mlfs(cache_dir)
 
     # Step 7: Build summary (wide format with metadata)
-    summary = build_summary(fy_mlfs, generators, indicative, final_excel)
+    summary = build_summary(fy_mlfs, generators, indicative, final_excel, station_names)
 
     # Step 8: Save outputs
     summary_path.parent.mkdir(parents=True, exist_ok=True)

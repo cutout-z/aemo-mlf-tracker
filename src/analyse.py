@@ -79,7 +79,8 @@ def compute_yoy_changes(fy_mlfs: pd.DataFrame) -> pd.DataFrame:
 
 def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
                   indicative: pd.DataFrame | None = None,
-                  final_excel: pd.DataFrame | None = None) -> pd.DataFrame:
+                  final_excel: pd.DataFrame | None = None,
+                  station_names: "pd.Series | None" = None) -> pd.DataFrame:
     """Build the master summary: pivot FYs to columns, merge generator metadata.
 
     Returns a wide-format DataFrame: one row per DUID with FY columns.
@@ -154,7 +155,27 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
     import re as _re
     _nl_pattern = _re.compile(r"NL\d*$", _re.IGNORECASE)
 
-    # Use STATIONID from DUDETAILSUMMARY as fallback station name
+    # Enrich STATION_NAME using the MMSDM STATION table (proper full names)
+    # Apply to ALL rows so even registered generators that have abbreviated
+    # station IDs as a fallback get the full name.
+    if station_names is not None and not station_names.empty and "STATIONID" in result.columns:
+        if "STATION_NAME" not in result.columns:
+            result["STATION_NAME"] = None
+        # Only replace where STATION_NAME is missing or still equals the raw STATIONID
+        # (i.e. hasn't been set by the registration list)
+        proper = result["STATIONID"].map(station_names)
+        mask_use_proper = (
+            result["STATION_NAME"].isna()
+            | (result["STATION_NAME"] == "")
+            | (result["STATION_NAME"] == result["STATIONID"])
+        ) & proper.notna()
+        result.loc[mask_use_proper, "STATION_NAME"] = proper[mask_use_proper]
+        logger.info(
+            f"Station name enrichment: {mask_use_proper.sum()} rows updated "
+            f"with proper names from MMSDM STATION table"
+        )
+
+    # Use STATIONID from DUDETAILSUMMARY as fallback station name (abbreviated)
     if "STATIONID" in result.columns and "STATION_NAME" in result.columns:
         mask_no_name = result["STATION_NAME"].isna() | (result["STATION_NAME"] == "")
         result.loc[mask_no_name, "STATION_NAME"] = result.loc[mask_no_name, "STATIONID"]
