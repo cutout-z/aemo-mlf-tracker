@@ -116,8 +116,12 @@ def download_dudetailsummary(year: int, month: int, cache_dir: str) -> pd.DataFr
     df["TRANSMISSIONLOSSFACTOR"] = pd.to_numeric(df["TRANSMISSIONLOSSFACTOR"], errors="coerce")
     df["DISTRIBUTIONLOSSFACTOR"] = pd.to_numeric(df["DISTRIBUTIONLOSSFACTOR"], errors="coerce")
 
-    # Filter to generators only
-    df = df[df["DISPATCHTYPE"] == "GENERATOR"].copy()
+    # Keep GENERATOR and BIDIRECTIONAL dispatch types.
+    # AEMO migrated batteries from separate GENERATOR/LOAD G-suffix DUIDs
+    # (e.g. HPRG1, VBBG1) to single BIDIRECTIONAL registration DUIDs
+    # (e.g. HPR1, VBB1) during 2024. Excluding BIDIRECTIONAL drops all post-
+    # migration battery MLF history.
+    df = df[df["DISPATCHTYPE"].isin(["GENERATOR", "BIDIRECTIONAL"])].copy()
 
-    logger.info(f"Parsed {len(df)} generator records for {df['DUID'].nunique()} unique DUIDs")
+    logger.info(f"Parsed {len(df)} generator/bidirectional records for {df['DUID'].nunique()} unique DUIDs")
     return df
