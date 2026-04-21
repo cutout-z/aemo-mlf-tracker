@@ -18,6 +18,13 @@ DRAFT_MLF_URL = (
     "draft-marginal-loss-factors-for-the-{fy_label}-financial-year-xls.xlsx"
 )
 
+# AEMO publishes final MLFs in April (same folder, no "draft-" prefix).
+FINAL_MLF_URL = (
+    "https://aemo.com.au/-/media/files/electricity/nem/security_and_reliability/"
+    "loss_factors_and_regional_boundaries/{fy_folder}/"
+    "marginal-loss-factors-for-the-{fy_label}-financial-year-xls.xlsx"
+)
+
 # Sheet name → NEM region mapping (Gen sheets only)
 SHEET_REGION_MAP = {
     "QLD Gen": "QLD1",
@@ -41,21 +48,12 @@ def get_indicative_fy() -> tuple[int, str, str]:
     return next_fy, fy_label, fy_folder
 
 
-def download_draft_mlfs(cache_dir: str) -> pd.DataFrame | None:
-    """Download and parse AEMO's draft MLF Excel file.
-
-    Returns DataFrame with columns [DUID, REGIONID, INDICATIVE_MLF] or None if unavailable.
-    """
-    cache_path = Path(cache_dir)
-    cache_path.mkdir(parents=True, exist_ok=True)
-
-    next_fy, fy_label, fy_folder = get_indicative_fy()
-    url = DRAFT_MLF_URL.format(fy_folder=fy_folder, fy_label=fy_label)
-    xlsx_path = cache_path / f"draft_mlf_{fy_label}.xlsx"
-
-    # Download if not cached
-    if not xlsx_path.exists():
-        logger.info(f"Downloading draft MLFs for FY{fy_label}...")
+def _download_mlf_excel(
+    url: str, cache_path: Path, fy_label: str, col_name: str
+) -> pd.DataFrame | None:
+    """Shared downloader for draft and final MLF Excel files."""
+    if not cache_path.exists():
+        logger.info(f"Downloading MLF Excel from {url} ...")
         for attempt in range(config.MAX_RETRIES):
             try:
                 resp = requests.get(
@@ -63,11 +61,11 @@ def download_draft_mlfs(cache_dir: str) -> pd.DataFrame | None:
                     headers={"User-Agent": "Mozilla/5.0 AEMO-MLF-Tracker"},
                 )
                 if resp.status_code == 404:
-                    logger.info(f"Draft MLFs for FY{fy_label} not yet published (404)")
+                    logger.info(f"MLF Excel not yet published (404): {url}")
                     return None
                 resp.raise_for_status()
-                xlsx_path.write_bytes(resp.content)
-                logger.info(f"Downloaded draft MLFs ({len(resp.content) / 1024:.0f} KB)")
+                cache_path.write_bytes(resp.content)
+                logger.info(f"Downloaded ({len(resp.content) / 1024:.0f} KB) → {cache_path.name}")
                 break
             except requests.RequestException as e:
                 if attempt < config.MAX_RETRIES - 1:
@@ -75,20 +73,20 @@ def download_draft_mlfs(cache_dir: str) -> pd.DataFrame | None:
                     logger.warning(f"Download failed (attempt {attempt + 1}): {e}. Retrying in {wait}s...")
                     time.sleep(wait)
                 else:
-                    logger.warning(f"Could not download draft MLFs: {e}")
+                    logger.warning(f"Could not download MLF Excel: {e}")
                     return None
 
-    return parse_draft_mlf_excel(xlsx_path, fy_label)
+    return _parse_mlf_excel(cache_path, fy_label, col_name)
 
 
-def parse_draft_mlf_excel(xlsx_path: Path, fy_label: str) -> pd.DataFrame | None:
-    """Parse AEMO's draft MLF Excel file into a clean DataFrame."""
-    logger.info(f"Parsing draft MLF Excel for FY{fy_label}...")
+def _parse_mlf_excel(xlsx_path: Path, fy_label: str, col_name: str) -> pd.DataFrame | None:
+    """Parse an AEMO MLF Excel file (draft or final) into a clean DataFrame."""
+    logger.info(f"Parsing MLF Excel for FY{fy_label} ({xlsx_path.name})...")
 
     try:
         xls = pd.ExcelFile(xlsx_path, engine="openpyxl")
     except Exception as e:
-        logger.error(f"Failed to open draft MLF Excel: {e}")
+        logger.error(f"Failed to open MLF Excel: {e}")
         return None
 
     all_rows = []
@@ -116,25 +114,61 @@ def parse_draft_mlf_excel(xlsx_path: Path, fy_label: str) -> pd.DataFrame | None
         data = data.dropna(subset=["DUID"])
 
         # Find the MLF column for the target FY
-        fy_short = fy_label  # e.g. "2026-27"
-        mlf_col = [c for c in headers if fy_short in c and "MLF" in c]
+        mlf_col = [c for c in headers if fy_label in c and "MLF" in c]
         if not mlf_col:
-            logger.warning(f"No {fy_short} MLF column in sheet '{sheet_name}'")
+            logger.warning(f"No {fy_label} MLF column in sheet '{sheet_name}'")
             continue
 
         for _, row in data.iterrows():
             duid = str(row["DUID"]).strip()
             mlf = pd.to_numeric(row[mlf_col[0]], errors="coerce")
             if pd.notna(mlf) and duid:
-                all_rows.append({"DUID": duid, "REGIONID": region, "INDICATIVE_MLF": mlf})
+                all_rows.append({"DUID": duid, "REGIONID": region, col_name: mlf})
 
     if not all_rows:
-        logger.warning("No indicative MLF data parsed")
+        logger.warning("No MLF data parsed")
         return None
 
     result = pd.DataFrame(all_rows)
-    # Deduplicate (ACT Gen may overlap with NSW Gen)
     result = result.drop_duplicates(subset="DUID", keep="first")
-
-    logger.info(f"Parsed {len(result)} indicative MLFs for FY{fy_label}")
+    logger.info(f"Parsed {len(result)} MLFs for FY{fy_label} (col: {col_name})")
     return result
+
+
+def download_draft_mlfs(cache_dir: str) -> pd.DataFrame | None:
+    """Download and parse AEMO's draft MLF Excel for the next FY.
+
+    Returns DataFrame with columns [DUID, REGIONID, INDICATIVE_MLF] or None if unavailable.
+    """
+    cache_path = Path(cache_dir)
+    cache_path.mkdir(parents=True, exist_ok=True)
+    next_fy, fy_label, fy_folder = get_indicative_fy()
+    url = DRAFT_MLF_URL.format(fy_folder=fy_folder, fy_label=fy_label)
+    xlsx_path = cache_path / f"draft_mlf_{fy_label}.xlsx"
+    return _download_mlf_excel(url, xlsx_path, fy_label, "INDICATIVE_MLF")
+
+
+def download_final_mlfs(cache_dir: str, full_refresh: bool = False) -> pd.DataFrame | None:
+    """Download and parse AEMO's final MLF Excel for the current FY (published each April).
+
+    AEMO loads final MLFs into DUDETAILSUMMARY only on July 1. This function reads
+    the published Excel directly so final values are available from April onwards.
+
+    Returns DataFrame with columns [DUID, REGIONID, FINAL_MLF] or None if unavailable.
+    """
+    cache_path = Path(cache_dir)
+    cache_path.mkdir(parents=True, exist_ok=True)
+
+    # Final MLFs are for the current FY (FY_END → FY_END+1)
+    fy_start = config.FY_END
+    fy_label = f"{fy_start}-{(fy_start + 1) % 100:02d}"
+    fy_folder = fy_label
+    url = FINAL_MLF_URL.format(fy_folder=fy_folder, fy_label=fy_label)
+    xlsx_path = cache_path / f"final_mlf_{fy_label}.xlsx"
+
+    if full_refresh and xlsx_path.exists():
+        xlsx_path.unlink()
+        logger.info(f"Cleared cached final MLF Excel for FY{fy_label}")
+
+    return _download_mlf_excel(url, xlsx_path, fy_label, "FINAL_MLF")
+

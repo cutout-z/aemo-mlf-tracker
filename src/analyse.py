@@ -78,11 +78,16 @@ def compute_yoy_changes(fy_mlfs: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
-                  indicative: pd.DataFrame | None = None) -> pd.DataFrame:
+                  indicative: pd.DataFrame | None = None,
+                  final_excel: pd.DataFrame | None = None) -> pd.DataFrame:
     """Build the master summary: pivot FYs to columns, merge generator metadata.
 
     Returns a wide-format DataFrame: one row per DUID with FY columns.
-    If indicative data is provided, adds a draft FY column (e.g. "FY26-27 (Draft)").
+
+    - final_excel: DataFrame [DUID, FINAL_MLF] from AEMO's published final Excel.
+      When provided, overrides the current FY column (which would otherwise carry
+      forward FY25-26 values until DUDETAILSUMMARY is updated on July 1).
+    - indicative: DataFrame [DUID, INDICATIVE_MLF] for the *next* FY draft column.
     """
     df = compute_yoy_changes(fy_mlfs)
 
@@ -94,6 +99,21 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
     latest = df.sort_values("FY_START_YEAR").drop_duplicates("DUID", keep="last")
     meta = latest[["DUID", "REGIONID", "CONNECTIONPOINTID", "STATIONID"]].set_index("DUID")
     result = meta.join(pivot)
+
+    # Apply final Excel overrides for the current FY column.
+    # AEMO publishes the final Excel in April; DUDETAILSUMMARY isn't updated until July.
+    # This ensures the current FY column reflects genuine final values, not FY-1 fallbacks.
+    if final_excel is not None and not final_excel.empty:
+        from . import config as _cfg
+        current_fy_col = f"FY{_cfg.FY_END % 100:02d}-{(_cfg.FY_END + 1) % 100:02d}"
+        if current_fy_col in result.columns:
+            final_map = final_excel.set_index("DUID")["FINAL_MLF"]
+            overridden = result.index.map(final_map)
+            result[current_fy_col] = overridden.where(overridden.notna(), result[current_fy_col])
+            logger.info(
+                f"Applied final Excel overrides to '{current_fy_col}': "
+                f"{overridden.notna().sum()} DUIDs updated"
+            )
 
     # Compute latest YoY change (final FYs only)
     fy_cols = sorted([c for c in pivot.columns if c.startswith("FY")])
