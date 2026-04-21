@@ -139,15 +139,40 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
         result = result.join(ind, how="left")
         logger.info(f"Added indicative column '{draft_col}' ({indicative['DUID'].nunique()} DUIDs)")
 
-    # Merge generator metadata if available
+    # Merge generator/participant metadata if available
     if generators is not None and not generators.empty:
         gen_meta = generators.set_index("DUID")[
             [c for c in ["STATION_NAME", "FUEL_SOURCE", "FUEL_CATEGORY",
-                         "TECHNOLOGY", "CAPACITY_MW"] if c in generators.columns]
+                         "TECHNOLOGY", "CAPACITY_MW", "DUID_TYPE"]
+             if c in generators.columns]
         ]
         result = result.join(gen_meta, how="left")
 
     result = result.reset_index()
+
+    # --- Fallback labelling for DUIDs not in any registration sheet ---
+    import re as _re
+    _nl_pattern = _re.compile(r"NL\d*$", _re.IGNORECASE)
+
+    # Use STATIONID from DUDETAILSUMMARY as fallback station name
+    if "STATIONID" in result.columns and "STATION_NAME" in result.columns:
+        mask_no_name = result["STATION_NAME"].isna() | (result["STATION_NAME"] == "")
+        result.loc[mask_no_name, "STATION_NAME"] = result.loc[mask_no_name, "STATIONID"]
+
+    # Infer DUID_TYPE from DUID suffix if still missing
+    if "DUID_TYPE" in result.columns:
+        mask_no_type = result["DUID_TYPE"].isna() | (result["DUID_TYPE"] == "")
+        if mask_no_type.any():
+            def _infer_type(duid):
+                d = str(duid)
+                if _nl_pattern.search(d):
+                    return "Network Load"
+                return "Unknown"
+            result.loc[mask_no_type, "DUID_TYPE"] = result.loc[mask_no_type, "DUID"].map(_infer_type)
+    else:
+        result["DUID_TYPE"] = result["DUID"].map(
+            lambda d: "Network Load" if _nl_pattern.search(str(d)) else "Unknown"
+        )
 
     # Sort by region then latest MLF (ascending = worst MLFs first)
     sort_cols = ["REGIONID"]

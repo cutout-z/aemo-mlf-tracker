@@ -49,6 +49,14 @@
   .change-neg { color: #F8696B; }
   .change-neutral { color: var(--muted); }
 
+  .type-badge { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap; }
+  .type-generator { background: rgba(99,190,123,0.15); color: #63BE7B; border: 1px solid rgba(99,190,123,0.3); }
+  .type-network { background: rgba(100,160,240,0.15); color: #64a0f0; border: 1px solid rgba(100,160,240,0.3); }
+  .type-interconnector { background: rgba(180,130,240,0.15); color: #b482f0; border: 1px solid rgba(180,130,240,0.3); }
+  .type-scheduled { background: rgba(255,200,80,0.15); color: #ffc850; border: 1px solid rgba(255,200,80,0.3); }
+  .type-customer { background: rgba(255,160,80,0.15); color: #ffa050; border: 1px solid rgba(255,160,80,0.3); }
+  .type-unknown { background: rgba(136,136,136,0.15); color: var(--muted); border: 1px solid rgba(136,136,136,0.25); }
+
   .stats { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
   .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 18px; min-width: 140px; }
   .stat-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; }
@@ -79,6 +87,7 @@
   <div class="tabs" id="tabs"></div>
   <div class="filters">
     <select id="regionFilter" style="display:none"><option value="">All Regions</option></select>
+    <select id="typeFilter"><option value="">All Types</option></select>
     <select id="fuelFilter"><option value="">All Fuel Types</option></select>
     <input type="text" id="search" placeholder="Search DUID or station...">
   </div>
@@ -148,9 +157,11 @@ function getBaseRows() {
 }
 
 function getFiltered() {
+  const type = document.getElementById('typeFilter').value;
   const fuel = document.getElementById('fuelFilter').value;
   const search = document.getElementById('search').value.toLowerCase();
   let rows = getBaseRows();
+  if (type) rows = rows.filter(r => (r.DUID_TYPE || 'Unknown') === type);
   if (fuel) rows = rows.filter(r => r.FUEL_CATEGORY === fuel);
   if (search) rows = rows.filter(r =>
     (r.DUID || '').toLowerCase().includes(search) ||
@@ -256,11 +267,11 @@ function renderTable() {
 
   const showRegionCol = activeRegion === 'ALL';
   const metaCols = showRegionCol
-    ? ['DUID', 'STATION_NAME', 'REGIONID', 'FUEL_CATEGORY', 'CAPACITY_MW']
-    : ['DUID', 'STATION_NAME', 'FUEL_CATEGORY', 'CAPACITY_MW'];
+    ? ['DUID', 'DUID_TYPE', 'STATION_NAME', 'REGIONID', 'FUEL_CATEGORY', 'CAPACITY_MW']
+    : ['DUID', 'DUID_TYPE', 'STATION_NAME', 'FUEL_CATEGORY', 'CAPACITY_MW'];
   const metaLabels = showRegionCol
-    ? ['DUID', 'Station', 'Region', 'Fuel', 'MW']
-    : ['DUID', 'Station', 'Fuel', 'MW'];
+    ? ['DUID', 'Type', 'Station', 'Region', 'Fuel', 'MW']
+    : ['DUID', 'Type', 'Station', 'Fuel', 'MW'];
   const extraCols = ['YOY_CHANGE', 'YOY_PCT_CHANGE'];
   const extraLabels = ['YoY', 'YoY %'];
 
@@ -303,6 +314,15 @@ function renderTable() {
 
     // DUID
     cells.push(`<td>${duid}</td>`);
+    // Type badge
+    const typeVal = row.DUID_TYPE || 'Unknown';
+    const typeCls = typeVal === 'Generator' ? 'type-generator'
+      : typeVal === 'Network Load' ? 'type-network'
+      : typeVal === 'Interconnector' ? 'type-interconnector'
+      : typeVal === 'Scheduled Load' ? 'type-scheduled'
+      : typeVal === 'Market Customer' ? 'type-customer'
+      : 'type-unknown';
+    cells.push(`<td><span class="type-badge ${typeCls}">${typeVal}</span></td>`);
     // Station
     cells.push(`<td>${row.STATION_NAME || ''}</td>`);
     // Region (only in All tab)
@@ -356,9 +376,9 @@ function exportSelectedToExcel() {
 
   // Build export columns
   const allFyExport = [...fyCols, ...draftCols];
-  const exportCols = ['DUID', 'STATION_NAME', 'REGIONID', 'FUEL_CATEGORY',
+  const exportCols = ['DUID', 'DUID_TYPE', 'STATION_NAME', 'REGIONID', 'FUEL_CATEGORY',
                       'TECHNOLOGY', 'CAPACITY_MW', ...allFyExport, 'YOY_CHANGE', 'YOY_PCT_CHANGE'];
-  const headers = ['DUID', 'Station', 'Region', 'Fuel Type',
+  const headers = ['DUID', 'Type', 'Station', 'Region', 'Fuel Type',
                     'Technology', 'Capacity (MW)', ...allFyExport, 'YoY Change', 'YoY %'];
 
   const wsData = [headers];
@@ -399,6 +419,15 @@ function renderDownloads() {
 }
 
 function populateFilters() {
+  const types = [...new Set(allData.map(r => r.DUID_TYPE || 'Unknown').filter(Boolean))].sort();
+  const typeSel = document.getElementById('typeFilter');
+  types.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t; opt.textContent = t;
+    typeSel.appendChild(opt);
+  });
+  typeSel.onchange = () => { renderStats(); renderTable(); };
+
   const fuels = [...new Set(allData.map(r => r.FUEL_CATEGORY).filter(Boolean))].sort();
   const fuelSel = document.getElementById('fuelFilter');
   fuels.forEach(f => {
