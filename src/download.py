@@ -108,8 +108,11 @@ def download_dudetailsummary(year: int, month: int, cache_dir: str) -> pd.DataFr
     df = pd.DataFrame(rows)
 
     # Type conversions
+    # AEMO uses 2999/12/31 as open-ended sentinel — clamp to stay within pandas timestamp range
     df["START_DATE"] = pd.to_datetime(df["START_DATE"])
-    df["END_DATE"] = pd.to_datetime(df["END_DATE"])
+    df["END_DATE"] = pd.to_datetime(
+        df["END_DATE"].str.replace("2999/12/31", "2099/12/31", regex=False)
+    )
     df["TRANSMISSIONLOSSFACTOR"] = pd.to_numeric(df["TRANSMISSIONLOSSFACTOR"], errors="coerce")
     df["DISTRIBUTIONLOSSFACTOR"] = pd.to_numeric(df["DISTRIBUTIONLOSSFACTOR"], errors="coerce")
 
