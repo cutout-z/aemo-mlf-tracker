@@ -1,5 +1,7 @@
 """Configuration for AEMO MLF Tracker."""
 
+import datetime as _dt
+
 # NEM regions
 REGIONS = ["NSW1", "QLD1", "VIC1", "SA1", "TAS1"]
 
@@ -13,7 +15,10 @@ REGION_NAMES = {
 
 # Financial years to track (start year of FY, e.g. 2015 = FY 2015-16)
 FY_START = 2015
-FY_END = 2025  # FY 2025-26
+# Final MLFs for FY N → N+1 are published by AEMO each April.
+# From April onwards, the current year's FY is available; prior months use the prior year.
+_now = _dt.date.today()
+FY_END = _now.year if _now.month >= 4 else _now.year - 1
 
 # MMSDM archive URL template for DUDETAILSUMMARY
 MMSDM_BASE_URL = "https://nemweb.com.au/Data_Archive/Wholesale_Electricity/MMSDM/"
