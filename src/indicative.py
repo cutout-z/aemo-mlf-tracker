@@ -80,8 +80,16 @@ def _download_mlf_excel(
 
 
 def _parse_mlf_excel(xlsx_path: Path, fy_label: str, col_name: str) -> pd.DataFrame | None:
-    """Parse an AEMO MLF Excel file (draft or final) into a clean DataFrame."""
+    """Parse an AEMO MLF Excel file (draft or final) into a clean DataFrame.
+
+    Each Gen sheet has two sections:
+    - Regular generators: single MLF column (e.g. "2026-27 MLF")
+    - BDU section: separate Import/Export MLF columns (e.g. "2026-27 Import MLF", "2026-27 Export MLF")
+
+    Returns a DataFrame with col_name (export MLF) and optionally an import column.
+    """
     logger.info(f"Parsing MLF Excel for FY{fy_label} ({xlsx_path.name})...")
+    import_col_name = col_name.replace("MLF", "IMPORT_MLF")
 
     try:
         xls = pd.ExcelFile(xlsx_path, engine="openpyxl")
@@ -96,34 +104,55 @@ def _parse_mlf_excel(xlsx_path: Path, fy_label: str, col_name: str) -> pd.DataFr
 
         df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
 
-        # Find header row containing "DUID"
-        header_idx = None
-        for i in range(min(20, len(df))):
+        # Find ALL header rows containing "DUID" — there may be two:
+        # one for regular generators and one for the BDU section
+        header_indices = []
+        for i in range(len(df)):
             row_vals = [str(v).strip() for v in df.iloc[i].tolist()]
             if "DUID" in row_vals:
-                header_idx = i
-                break
+                header_indices.append(i)
 
-        if header_idx is None:
+        if not header_indices:
             logger.warning(f"No DUID header found in sheet '{sheet_name}'")
             continue
 
-        headers = [str(v).strip() for v in df.iloc[header_idx].tolist()]
-        data = df.iloc[header_idx + 1:].copy()
-        data.columns = headers
-        data = data.dropna(subset=["DUID"])
+        for sec_idx, header_idx in enumerate(header_indices):
+            headers = [str(v).strip() for v in df.iloc[header_idx].tolist()]
 
-        # Find the MLF column for the target FY
-        mlf_col = [c for c in headers if fy_label in c and "MLF" in c]
-        if not mlf_col:
-            logger.warning(f"No {fy_label} MLF column in sheet '{sheet_name}'")
-            continue
+            # Determine where this section ends (next header row or end of sheet)
+            next_header = header_indices[sec_idx + 1] if sec_idx + 1 < len(header_indices) else len(df)
+            data = df.iloc[header_idx + 1:next_header].copy()
+            data.columns = headers
+            data = data.dropna(subset=["DUID"])
 
-        for _, row in data.iterrows():
-            duid = str(row["DUID"]).strip()
-            mlf = pd.to_numeric(row[mlf_col[0]], errors="coerce")
-            if pd.notna(mlf) and duid:
-                all_rows.append({"DUID": duid, "REGIONID": region, col_name: mlf})
+            # Check if this is a BDU section with Import/Export MLF columns
+            import_mlf_col = [c for c in headers if fy_label in c and "Import MLF" in c]
+            export_mlf_col = [c for c in headers if fy_label in c and "Export MLF" in c]
+
+            if import_mlf_col and export_mlf_col:
+                # BDU section — separate import and export MLFs
+                for _, row in data.iterrows():
+                    duid = str(row["DUID"]).strip()
+                    export_mlf = pd.to_numeric(row[export_mlf_col[0]], errors="coerce")
+                    import_mlf = pd.to_numeric(row[import_mlf_col[0]], errors="coerce")
+                    if duid and (pd.notna(export_mlf) or pd.notna(import_mlf)):
+                        entry = {"DUID": duid, "REGIONID": region}
+                        if pd.notna(export_mlf):
+                            entry[col_name] = export_mlf
+                        if pd.notna(import_mlf):
+                            entry[import_col_name] = import_mlf
+                        all_rows.append(entry)
+            else:
+                # Regular section — single MLF column
+                mlf_col = [c for c in headers if fy_label in c and "MLF" in c]
+                if not mlf_col:
+                    logger.warning(f"No {fy_label} MLF column in sheet '{sheet_name}' section {sec_idx}")
+                    continue
+                for _, row in data.iterrows():
+                    duid = str(row["DUID"]).strip()
+                    mlf = pd.to_numeric(row[mlf_col[0]], errors="coerce")
+                    if pd.notna(mlf) and duid:
+                        all_rows.append({"DUID": duid, "REGIONID": region, col_name: mlf})
 
     if not all_rows:
         logger.warning("No MLF data parsed")
@@ -131,7 +160,9 @@ def _parse_mlf_excel(xlsx_path: Path, fy_label: str, col_name: str) -> pd.DataFr
 
     result = pd.DataFrame(all_rows)
     result = result.drop_duplicates(subset="DUID", keep="first")
-    logger.info(f"Parsed {len(result)} MLFs for FY{fy_label} (col: {col_name})")
+
+    bdu_count = result[import_col_name].notna().sum() if import_col_name in result.columns else 0
+    logger.info(f"Parsed {len(result)} MLFs for FY{fy_label} (col: {col_name}, {bdu_count} with import MLF)")
     return result
 
 
