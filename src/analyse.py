@@ -46,6 +46,7 @@ def extract_fy_mlfs(detail_df: pd.DataFrame) -> pd.DataFrame:
                 # Fallback: first record that starts during this FY
                 best = group.sort_values("START_DATE").iloc[0]
 
+            import_mlf = best.get("SECONDARY_TLF")
             rows.append({
                 "DUID": duid,
                 "REGIONID": best["REGIONID"],
@@ -54,6 +55,7 @@ def extract_fy_mlfs(detail_df: pd.DataFrame) -> pd.DataFrame:
                 "FY": fy_label,
                 "FY_START_YEAR": fy_start_year,
                 "MLF": best["TRANSMISSIONLOSSFACTOR"],
+                "IMPORT_MLF": import_mlf if pd.notna(import_mlf) else None,
             })
 
     result = pd.DataFrame(rows)
@@ -92,14 +94,23 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
     """
     df = compute_yoy_changes(fy_mlfs)
 
-    # Pivot to wide format: DUID as rows, FY as columns
+    # Pivot to wide format: DUID as rows, FY as columns (export MLF)
     pivot = df.pivot_table(index="DUID", columns="FY", values="MLF", aggfunc="first")
     pivot.columns = [str(c) for c in pivot.columns]
+
+    # Pivot import MLFs where available (BIDIRECTIONAL DUIDs, FY24-25 onwards)
+    has_import = df["IMPORT_MLF"].notna().any()
+    import_pivot = None
+    if has_import:
+        import_pivot = df.pivot_table(index="DUID", columns="FY", values="IMPORT_MLF", aggfunc="first")
+        import_pivot.columns = [f"{c} Import" for c in import_pivot.columns]
 
     # Add metadata from the latest FY record per DUID
     latest = df.sort_values("FY_START_YEAR").drop_duplicates("DUID", keep="last")
     meta = latest[["DUID", "REGIONID", "CONNECTIONPOINTID", "STATIONID"]].set_index("DUID")
     result = meta.join(pivot)
+    if import_pivot is not None:
+        result = result.join(import_pivot)
 
     # Add stub rows for DUIDs in the final Excel that have no DUDETAILSUMMARY history.
     # These are either newly commissioned assets (first MLF = current FY) or DUIDs
@@ -143,6 +154,20 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
                 f"{overridden.notna().sum()} DUIDs updated"
             )
 
+        # Apply import MLF overrides from the final Excel (BDU Import MLF column)
+        current_fy_import_col = f"{current_fy_col} Import"
+        if "FINAL_IMPORT_MLF" in final_excel.columns:
+            import_map = final_excel.set_index("DUID")["FINAL_IMPORT_MLF"]
+            import_overridden = result.index.map(import_map)
+            result[current_fy_import_col] = import_overridden.where(
+                import_overridden.notna(),
+                result.get(current_fy_import_col),
+            )
+            logger.info(
+                f"Applied final Excel import MLF overrides to '{current_fy_import_col}': "
+                f"{import_overridden.notna().sum()} DUIDs updated"
+            )
+
     # Compute latest YoY change (final FYs only)
     fy_cols = sorted([c for c in pivot.columns if c.startswith("FY")])
     if len(fy_cols) >= 2:
@@ -155,15 +180,30 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
             result["YOY_CHANGE"] / result["PREV_MLF"] * 100
         ).round(2)
 
+        # Import MLF YoY (only meaningful for BIDIRECTIONAL DUIDs)
+        current_import = f"{current_fy} Import"
+        prev_import = f"{prev_fy} Import"
+        if current_import in result.columns and prev_import in result.columns:
+            result["LATEST_IMPORT_MLF"] = result[current_import]
+            result["PREV_IMPORT_MLF"] = result[prev_import]
+            result["IMPORT_YOY_CHANGE"] = (
+                result["LATEST_IMPORT_MLF"] - result["PREV_IMPORT_MLF"]
+            ).round(4)
+            result["IMPORT_YOY_PCT_CHANGE"] = (
+                result["IMPORT_YOY_CHANGE"] / result["PREV_IMPORT_MLF"] * 100
+            ).round(2)
+
     # Merge indicative/draft MLFs if available
     draft_col = None
     if indicative is not None and not indicative.empty:
         from .indicative import get_indicative_fy
         next_fy_start, fy_label, _ = get_indicative_fy()
         draft_col = f"FY{next_fy_start % 100:02d}-{(next_fy_start + 1) % 100:02d} (Draft)"
-        ind = indicative.set_index("DUID")[["INDICATIVE_MLF"]].rename(
-            columns={"INDICATIVE_MLF": draft_col}
-        )
+        join_cols = {"INDICATIVE_MLF": draft_col}
+        if "INDICATIVE_IMPORT_MLF" in indicative.columns:
+            draft_import_col = f"{draft_col} Import"
+            join_cols["INDICATIVE_IMPORT_MLF"] = draft_import_col
+        ind = indicative.set_index("DUID")[list(join_cols.keys())].rename(columns=join_cols)
         result = result.join(ind, how="left")
         logger.info(f"Added indicative column '{draft_col}' ({indicative['DUID'].nunique()} DUIDs)")
 

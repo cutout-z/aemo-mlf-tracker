@@ -115,6 +115,7 @@ def download_dudetailsummary(year: int, month: int, cache_dir: str) -> pd.DataFr
     )
     df["TRANSMISSIONLOSSFACTOR"] = pd.to_numeric(df["TRANSMISSIONLOSSFACTOR"], errors="coerce")
     df["DISTRIBUTIONLOSSFACTOR"] = pd.to_numeric(df["DISTRIBUTIONLOSSFACTOR"], errors="coerce")
+    df["SECONDARY_TLF"] = pd.to_numeric(df["SECONDARY_TLF"], errors="coerce")
 
     # Keep GENERATOR and BIDIRECTIONAL dispatch types.
     # AEMO migrated batteries from separate GENERATOR/LOAD G-suffix DUIDs
