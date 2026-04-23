@@ -45,6 +45,8 @@
   .draft-header { background: #5a4a8a !important; }
   .draft-header:hover { background: #4a3a7a !important; }
   .draft-cell { border-left: 2px dashed #7b68ae; }
+  .import-header { background: #4a6a3a !important; }
+  .import-header:hover { background: #3a5a2a !important; }
   .change-pos { color: #63BE7B; }
   .change-neg { color: #F8696B; }
   .change-neutral { color: var(--muted); }
@@ -76,6 +78,7 @@
   .dl-btn:hover { background: var(--accent); color: #fff; }
   .footer { margin-top: 24px; color: var(--muted); font-size: 0.78rem; }
   .loading { text-align: center; padding: 40px; color: var(--muted); }
+  .section-title { font-size: 1.1rem; margin: 24px 0 8px; color: var(--text); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -104,7 +107,17 @@
   <span class="sel-count" id="selCount"></span>
 </div>
 
-<div class="table-wrap"><div class="loading" id="loading">Loading data...</div><table id="table" style="display:none"><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
+<div class="loading" id="loading">Loading data...</div>
+
+<div id="genSection" style="display:none">
+  <h2 class="section-title" id="genTitle">Generators</h2>
+  <div class="table-wrap"><table id="genTable"><thead id="genThead"></thead><tbody id="genTbody"></tbody></table></div>
+</div>
+
+<div id="battSection" style="display:none">
+  <h2 class="section-title" id="battTitle">Battery Storage</h2>
+  <div class="table-wrap"><table id="battTable"><thead id="battThead"></thead><tbody id="battTbody"></tbody></table></div>
+</div>
 
 <div class="downloads" id="downloads"></div>
 <div class="footer" id="footer"></div>
@@ -114,12 +127,12 @@ const REGIONS = {NSW1:'NSW',QLD1:'QLD',VIC1:'VIC',SA1:'SA',TAS1:'TAS'};
 const EXCEL_FILES = {NSW1:'NSW_mlf.xlsx',QLD1:'QLD_mlf.xlsx',VIC1:'VIC_mlf.xlsx',SA1:'SA_mlf.xlsx',TAS1:'TAS_mlf.xlsx'};
 
 let allData = [];
-let fyCols = [];     // final FY columns
-let draftCols = [];  // draft/indicative FY columns
+let fyCols = [];       // standard FY columns (export)
+let importCols = [];   // import FY columns
+let draftCols = [];    // draft/indicative FY columns
 let activeRegion = 'ALL';
-let sortCol = null;
-let sortDir = 'asc';
-let selected = new Set(); // stores DUIDs
+let sortState = { gen: { col: null, dir: 'asc' }, batt: { col: null, dir: 'asc' } };
+let selected = new Set();
 
 function mlfColor(val) {
   if (val === '' || val === null || isNaN(val)) return '';
@@ -174,52 +187,56 @@ function getFiltered() {
     (r.DUID || '').toLowerCase().includes(search) ||
     (r.STATION_NAME || '').toLowerCase().includes(search)
   );
-  if (sortCol) {
-    rows.sort((a, b) => {
-      let va = a[sortCol], vb = b[sortCol];
-      const na = parseFloat(va), nb = parseFloat(vb);
-      if (!isNaN(na) && !isNaN(nb)) { va = na; vb = nb; }
-      if (va === '' || va === undefined) return 1;
-      if (vb === '' || vb === undefined) return -1;
-      if (va < vb) return sortDir === 'asc' ? -1 : 1;
-      if (va > vb) return sortDir === 'asc' ? 1 : -1;
-      return 0;
-    });
-  }
   return rows;
+}
+
+function sortRows(rows, col, dir) {
+  if (!col) return rows;
+  return [...rows].sort((a, b) => {
+    let va = a[col], vb = b[col];
+    const na = parseFloat(va), nb = parseFloat(vb);
+    if (!isNaN(na) && !isNaN(nb)) { va = na; vb = nb; }
+    if (va === '' || va === undefined) return 1;
+    if (vb === '' || vb === undefined) return -1;
+    if (va < vb) return dir === 'asc' ? -1 : 1;
+    if (va > vb) return dir === 'asc' ? 1 : -1;
+    return 0;
+  });
 }
 
 function renderStats() {
   const rows = getBaseRows();
-  const latest = fyCols[fyCols.length - 1];
-  const vals = rows.map(r => parseFloat(r[latest])).filter(v => !isNaN(v));
-  const avg = vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(4) : '-';
-  const min = vals.length ? Math.min(...vals).toFixed(4) : '-';
-  const below90 = vals.filter(v => v < 0.9).length;
-  const yoyVals = rows.map(r => parseFloat(r.YOY_CHANGE)).filter(v => !isNaN(v));
-  const avgYoy = yoyVals.length ? (yoyVals.reduce((a, b) => a + b, 0) / yoyVals.length).toFixed(4) : '-';
+  const showRetired = document.getElementById('showRetired').checked;
+  const filtered = showRetired ? rows : rows.filter(r => r.STATUS !== 'Retired');
 
-  document.getElementById('stats').innerHTML = `
-    <div class="stat-card"><div class="stat-label">Generators</div><div class="stat-value">${vals.length}</div></div>
-    <div class="stat-card"><div class="stat-label">Avg MLF (${latest})</div><div class="stat-value">${avg}</div></div>
-    <div class="stat-card"><div class="stat-label">Lowest MLF</div><div class="stat-value" style="color:var(--red)">${min}</div></div>
-    <div class="stat-card"><div class="stat-label">Below 0.90</div><div class="stat-value" style="color:${below90 > 0 ? 'var(--red)' : 'var(--green)'}">${below90}</div></div>
-    <div class="stat-card"><div class="stat-label">Avg YoY Change</div><div class="stat-value">${avgYoy}</div></div>
-  `;
+  const fuelOrder = ['Solar', 'Wind', 'Battery', 'Hydro', 'Fossil', 'Other Renewable'];
+  const counts = {};
+  filtered.forEach(r => {
+    const fuel = r.FUEL_CATEGORY || 'Unknown';
+    counts[fuel] = (counts[fuel] || 0) + 1;
+  });
+
+  const displayFuels = fuelOrder.filter(f => counts[f] > 0);
+  Object.keys(counts).forEach(f => {
+    if (!fuelOrder.includes(f) && counts[f] > 0) displayFuels.push(f);
+  });
+
+  document.getElementById('stats').innerHTML = displayFuels.map(fuel =>
+    `<div class="stat-card"><div class="stat-label">${fuel}</div><div class="stat-value">${counts[fuel]}</div></div>`
+  ).join('');
 }
 
 function renderTabs() {
   const container = document.getElementById('tabs');
   container.innerHTML = '';
 
-  // "All" tab first
   const allBtn = document.createElement('button');
   allBtn.className = 'tab' + (activeRegion === 'ALL' ? ' active' : '');
   allBtn.textContent = 'All';
   allBtn.onclick = () => {
     activeRegion = 'ALL';
     document.getElementById('regionFilter').style.display = '';
-    renderTabs(); renderStats(); renderTable();
+    renderTabs(); renderStats(); renderTables();
   };
   container.appendChild(allBtn);
 
@@ -231,7 +248,7 @@ function renderTabs() {
       activeRegion = id;
       document.getElementById('regionFilter').style.display = 'none';
       document.getElementById('regionFilter').value = '';
-      renderTabs(); renderStats(); renderTable();
+      renderTabs(); renderStats(); renderTables();
     };
     container.appendChild(btn);
   }
@@ -247,7 +264,6 @@ function updateSelectionUI() {
 function toggleSelect(duid) {
   if (selected.has(duid)) selected.delete(duid); else selected.add(duid);
   updateSelectionUI();
-  // Update checkbox and row highlight without full re-render
   const row = document.querySelector(`tr[data-duid="${duid}"]`);
   if (row) {
     row.classList.toggle('selected', selected.has(duid));
@@ -256,21 +272,23 @@ function toggleSelect(duid) {
   }
 }
 
-function toggleSelectAll() {
-  const rows = getFiltered();
-  const allSelected = rows.every(r => selected.has(r.DUID));
-  if (allSelected) {
-    rows.forEach(r => selected.delete(r.DUID));
-  } else {
-    rows.forEach(r => selected.add(r.DUID));
-  }
-  updateSelectionUI();
-  renderTable();
-}
+function renderOneTable(opts) {
+  const { rows: unsortedRows, theadId, tbodyId, tableId, wrapId, sectionId, titleId,
+          titleText, sortKey, fyColumns, extraCols, extraLabels } = opts;
 
-function renderTable() {
-  const thead = document.getElementById('thead');
-  const tbody = document.getElementById('tbody');
+  const section = document.getElementById(sectionId);
+  const thead = document.getElementById(theadId);
+  const tbody = document.getElementById(tbodyId);
+
+  if (unsortedRows.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+  document.getElementById(titleId).textContent = `${titleText} (${unsortedRows.length})`;
+
+  const ss = sortState[sortKey];
+  const rows = sortRows(unsortedRows, ss.col, ss.dir);
 
   const showRegionCol = activeRegion === 'ALL';
   const metaCols = showRegionCol
@@ -279,35 +297,44 @@ function renderTable() {
   const metaLabels = showRegionCol
     ? ['DUID', 'Type', 'Station', 'Region', 'Fuel', 'MW']
     : ['DUID', 'Type', 'Station', 'Fuel', 'MW'];
-  const extraCols = ['YOY_CHANGE', 'YOY_PCT_CHANGE'];
-  const extraLabels = ['YoY', 'YoY %'];
 
-  const allFyCols = [...fyCols, ...draftCols];
-  const allCols = [...metaCols, ...allFyCols, ...extraCols];
-  const allLabels = [...metaLabels, ...allFyCols, ...extraLabels];
+  const allCols = [...metaCols, ...fyColumns, ...extraCols];
+  const allLabels = [...metaLabels, ...fyColumns, ...extraLabels];
 
-  const rows = getFiltered();
   const allChecked = rows.length > 0 && rows.every(r => selected.has(r.DUID));
 
-  thead.innerHTML = '<tr><th><input type="checkbox" class="cb" id="selectAll" ' +
+  thead.innerHTML = '<tr><th><input type="checkbox" class="cb" data-selectall="' + sortKey + '" ' +
     (allChecked ? 'checked' : '') + '></th>' +
     allLabels.map((l, i) => {
       const col = allCols[i];
-      const sortCls = col === sortCol ? (sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc') : '';
-      const draftCls = col.includes('Draft') ? ' draft-header' : '';
-      return `<th class="${sortCls}${draftCls}" data-col="${col}">${l}</th>`;
+      const sortCls = col === ss.col ? (ss.dir === 'asc' ? 'sorted-asc' : 'sorted-desc') : '';
+      const isDraft = col.includes('Draft');
+      const isImport = col.includes('Import') && col.startsWith('FY');
+      const headerCls = isDraft ? ' draft-header' : isImport ? ' import-header' : '';
+      return `<th class="${sortCls}${headerCls}" data-col="${col}" data-sort-key="${sortKey}">${l}</th>`;
     }).join('') + '</tr>';
 
   // Select-all handler
-  document.getElementById('selectAll').onchange = toggleSelectAll;
+  thead.querySelector('[data-selectall]').onchange = () => {
+    const allSel = unsortedRows.every(r => selected.has(r.DUID));
+    if (allSel) {
+      unsortedRows.forEach(r => selected.delete(r.DUID));
+    } else {
+      unsortedRows.forEach(r => selected.add(r.DUID));
+    }
+    updateSelectionUI();
+    renderTables();
+  };
 
   // Sort handlers
   thead.querySelectorAll('th[data-col]').forEach(th => {
     th.onclick = () => {
       const col = th.dataset.col;
-      if (sortCol === col) { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; }
-      else { sortCol = col; sortDir = 'asc'; }
-      renderTable();
+      const key = th.dataset.sortKey;
+      const s = sortState[key];
+      if (s.col === col) { s.dir = s.dir === 'asc' ? 'desc' : 'asc'; }
+      else { s.col = col; s.dir = 'asc'; }
+      renderTables();
     };
   });
 
@@ -317,13 +344,11 @@ function renderTable() {
     const isRetired = row.STATUS === 'Retired';
     const cells = [];
 
-    // Checkbox
     cells.push(`<td><input type="checkbox" class="cb" ${isSelected ? 'checked' : ''} data-duid="${duid}"></td>`);
 
-    // DUID
     const retiredBadge = isRetired ? ' <span class="badge-retired">retired</span>' : '';
     cells.push(`<td>${duid}${retiredBadge}</td>`);
-    // Type badge
+
     const typeVal = row.DUID_TYPE || 'Unknown';
     const typeCls = typeVal === 'Generator' ? 'type-generator'
       : typeVal === 'Network Load' ? 'type-network'
@@ -332,20 +357,18 @@ function renderTable() {
       : typeVal === 'Market Customer' ? 'type-customer'
       : 'type-unknown';
     cells.push(`<td><span class="type-badge ${typeCls}">${typeVal}</span></td>`);
-    // Station
+
     cells.push(`<td>${row.STATION_NAME || ''}</td>`);
-    // Region (only in All tab)
     if (showRegionCol) {
       cells.push(`<td>${REGIONS[row.REGIONID] || row.REGIONID || ''}</td>`);
     }
-    // Fuel
     cells.push(`<td>${row.FUEL_CATEGORY || ''}</td>`);
-    // MW
+
     const cap = parseFloat(row.CAPACITY_MW);
     cells.push(`<td>${isNaN(cap) ? '' : cap.toFixed(0)}</td>`);
 
-    // FY cells with heatmap (final + draft)
-    allFyCols.forEach(fy => {
+    // FY cells with heatmap
+    fyColumns.forEach(fy => {
       const val = parseFloat(row[fy]);
       const isDraft = fy.includes('Draft');
       if (isNaN(val)) {
@@ -357,17 +380,26 @@ function renderTable() {
       }
     });
 
-    // YoY cells
-    const yoy = parseFloat(row.YOY_CHANGE);
-    const yoyPct = parseFloat(row.YOY_PCT_CHANGE);
-    cells.push(`<td class="${changeClass(yoy)}">${isNaN(yoy) ? '-' : (yoy > 0 ? '+' : '') + yoy.toFixed(4)}</td>`);
-    cells.push(`<td class="${changeClass(yoyPct)}">${isNaN(yoyPct) ? '-' : (yoyPct > 0 ? '+' : '') + yoyPct.toFixed(2) + '%'}</td>`);
+    // Extra cols (YoY)
+    extraCols.forEach(col => {
+      const val = parseFloat(row[col]);
+      const isPct = col.includes('PCT');
+      if (isNaN(val)) {
+        cells.push(`<td class="change-neutral">-</td>`);
+      } else {
+        const cls = changeClass(val);
+        const formatted = isPct
+          ? (val > 0 ? '+' : '') + val.toFixed(2) + '%'
+          : (val > 0 ? '+' : '') + val.toFixed(4);
+        cells.push(`<td class="${cls}">${formatted}</td>`);
+      }
+    });
 
     const rowClass = [isSelected ? 'selected' : '', isRetired ? 'status-retired' : ''].filter(Boolean).join(' ');
     return `<tr data-duid="${duid}" class="${rowClass}">${cells.join('')}</tr>`;
   }).join('');
 
-  // Checkbox click handlers (event delegation)
+  // Checkbox click handlers
   tbody.querySelectorAll('.cb').forEach(cb => {
     cb.onchange = (e) => {
       e.stopPropagation();
@@ -375,21 +407,62 @@ function renderTable() {
     };
   });
 
-  document.getElementById('table').style.display = '';
-  document.getElementById('loading').style.display = 'none';
   updateSelectionUI();
+}
+
+function renderTables() {
+  const allFiltered = getFiltered();
+  const genRows = allFiltered.filter(r => r.FUEL_CATEGORY !== 'Battery');
+  const battRows = allFiltered.filter(r => r.FUEL_CATEGORY === 'Battery');
+
+  // Generator FY columns: standard + draft, no import
+  const genFyCols = [...fyCols, ...draftCols];
+
+  // Battery FY columns: interleave standard with import
+  const battFyCols = [];
+  fyCols.forEach(fy => {
+    battFyCols.push(fy);
+    const importCol = fy + ' Import';
+    if (importCols.includes(importCol)) {
+      battFyCols.push(importCol);
+    }
+  });
+  draftCols.forEach(dc => battFyCols.push(dc));
+
+  renderOneTable({
+    rows: genRows,
+    theadId: 'genThead', tbodyId: 'genTbody', tableId: 'genTable',
+    wrapId: 'genTableWrap', sectionId: 'genSection', titleId: 'genTitle',
+    titleText: 'Generators', sortKey: 'gen',
+    fyColumns: genFyCols,
+    extraCols: ['YOY_CHANGE', 'YOY_PCT_CHANGE'],
+    extraLabels: ['YoY', 'YoY %']
+  });
+
+  renderOneTable({
+    rows: battRows,
+    theadId: 'battThead', tbodyId: 'battTbody', tableId: 'battTable',
+    wrapId: 'battTableWrap', sectionId: 'battSection', titleId: 'battTitle',
+    titleText: 'Battery Storage', sortKey: 'batt',
+    fyColumns: battFyCols,
+    extraCols: ['YOY_CHANGE', 'YOY_PCT_CHANGE', 'IMPORT_YOY_CHANGE', 'IMPORT_YOY_PCT_CHANGE'],
+    extraLabels: ['YoY', 'YoY %', 'Import YoY', 'Import YoY %']
+  });
+
+  document.getElementById('loading').style.display = 'none';
 }
 
 function exportSelectedToExcel() {
   if (selected.size === 0) return;
   const selectedRows = allData.filter(r => selected.has(r.DUID));
 
-  // Build export columns
-  const allFyExport = [...fyCols, ...draftCols];
+  const allFyExport = [...fyCols, ...importCols, ...draftCols];
   const exportCols = ['DUID', 'DUID_TYPE', 'STATION_NAME', 'REGIONID', 'FUEL_CATEGORY',
-                      'TECHNOLOGY', 'CAPACITY_MW', ...allFyExport, 'YOY_CHANGE', 'YOY_PCT_CHANGE'];
+                      'TECHNOLOGY', 'CAPACITY_MW', ...allFyExport, 'YOY_CHANGE', 'YOY_PCT_CHANGE',
+                      'IMPORT_YOY_CHANGE', 'IMPORT_YOY_PCT_CHANGE'];
   const headers = ['DUID', 'Type', 'Station', 'Region', 'Fuel Type',
-                    'Technology', 'Capacity (MW)', ...allFyExport, 'YoY Change', 'YoY %'];
+                    'Technology', 'Capacity (MW)', ...allFyExport, 'YoY Change', 'YoY %',
+                    'Import YoY Change', 'Import YoY %'];
 
   const wsData = [headers];
   selectedRows.forEach(row => {
@@ -404,12 +477,11 @@ function exportSelectedToExcel() {
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(wsData);
 
-  // Set column widths
   ws['!cols'] = [
     {wch: 14}, {wch: 28}, {wch: 8}, {wch: 14},
     {wch: 22}, {wch: 12},
-    ...fyCols.map(() => ({wch: 10})),
-    {wch: 11}, {wch: 9}
+    ...allFyExport.map(() => ({wch: 10})),
+    {wch: 11}, {wch: 9}, {wch: 14}, {wch: 12}
   ];
 
   XLSX.utils.book_append_sheet(wb, ws, 'Selected Assets');
@@ -436,7 +508,7 @@ function populateFilters() {
     opt.value = t; opt.textContent = t;
     typeSel.appendChild(opt);
   });
-  typeSel.onchange = () => { renderStats(); renderTable(); };
+  typeSel.onchange = () => { renderStats(); renderTables(); };
 
   const fuels = [...new Set(allData.map(r => r.FUEL_CATEGORY).filter(Boolean))].sort();
   const fuelSel = document.getElementById('fuelFilter');
@@ -445,25 +517,24 @@ function populateFilters() {
     opt.value = f; opt.textContent = f;
     fuelSel.appendChild(opt);
   });
-  fuelSel.onchange = () => { renderStats(); renderTable(); };
+  fuelSel.onchange = () => { renderStats(); renderTables(); };
 
-  // Region filter (visible only on All tab)
   const regionSel = document.getElementById('regionFilter');
   Object.entries(REGIONS).forEach(([id, name]) => {
     const opt = document.createElement('option');
     opt.value = id; opt.textContent = name;
     regionSel.appendChild(opt);
   });
-  regionSel.onchange = () => { renderStats(); renderTable(); };
+  regionSel.onchange = () => { renderStats(); renderTables(); };
 }
 
-document.getElementById('search').oninput = () => renderTable();
-document.getElementById('showRetired').onchange = () => renderTable();
+document.getElementById('search').oninput = () => renderTables();
+document.getElementById('showRetired').onchange = () => { renderStats(); renderTables(); };
 document.getElementById('exportSelected').onclick = exportSelectedToExcel;
 document.getElementById('clearSelection').onclick = () => {
   selected.clear();
   updateSelectionUI();
-  renderTable();
+  renderTables();
 };
 
 Papa.parse('outputs/summary.csv', {
@@ -473,9 +544,15 @@ Papa.parse('outputs/summary.csv', {
   complete: function(results) {
     allData = results.data;
     const allFyKeys = Object.keys(allData[0] || {}).filter(k => k.startsWith('FY')).sort();
-    fyCols = allFyKeys.filter(k => !k.includes('Draft'));
+    fyCols = allFyKeys.filter(k => !k.includes('Draft') && !k.includes('Import'));
+    importCols = allFyKeys.filter(k => k.includes('Import'));
     draftCols = allFyKeys.filter(k => k.includes('Draft'));
-    if (fyCols.length) { sortCol = fyCols[fyCols.length - 1]; sortDir = 'asc'; }
+
+    const latestFy = fyCols[fyCols.length - 1];
+    if (latestFy) {
+      sortState.gen.col = latestFy;
+      sortState.batt.col = latestFy;
+    }
 
     document.getElementById('footer').textContent =
       `${allData.length} generators tracked \u00B7 FY${fyCols[0]?.slice(2) || '?'} to FY${fyCols[fyCols.length-1]?.slice(2) || '?'} \u00B7 Source: AEMO DUDETAILSUMMARY via MMSDM Archive`;
@@ -483,7 +560,7 @@ Papa.parse('outputs/summary.csv', {
     populateFilters();
     renderTabs();
     renderStats();
-    renderTable();
+    renderTables();
     renderDownloads();
   },
   error: function() {
