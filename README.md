@@ -21,7 +21,7 @@ Automated tracker for Marginal Loss Factors (MLFs) across all generator assets i
 | **Asset types** | Generator, Network Load, Ancillary Service, Demand Response |
 | **Fuel types** | Solar, Wind, Hydro, Fossil, Battery, Other Renewable |
 | **History** | FY15-16 to FY26-27 (12 years) |
-| **Update frequency** | Annually (MLFs take effect July 1) |
+| **Update frequency** | Annual/draft-annual Hetzner VPS refresh (final MLFs in April, draft/indicative MLFs in October) |
 
 ## Dashboard features
 
@@ -77,6 +77,12 @@ python -m src.main              # incremental (uses cache)
 python -m src.main --full-refresh  # re-download everything
 ```
 
+## Automation
+
+Production updates run on the Hetzner VPS via `aemo-mlf-tracker.timer`; see [`deploy/README.md`](deploy/README.md) for setup details. The VPS lane intentionally uses `--full-refresh` because the source footprint is small and AEMO publishes final/draft MLF data on an annual cadence.
+
+GitHub Actions is kept as a manual verification/fallback runner. GitHub Pages deploys after the VPS pushes updated outputs.
+
 ## Output Validation
 
 After the pipeline runs and before committing, an automated validation step (`tests/validate_outputs.py`) checks:
@@ -89,7 +95,7 @@ After the pipeline runs and before committing, an automated validation step (`te
 - YOY_CHANGE is consistent with LATEST_MLF - PREV_MLF (within 0.001 tolerance)
 - All 5 regional Excel workbooks exist
 
-If any check fails, the workflow exits before committing — preventing bad data from reaching the dashboard.
+If any check fails, the VPS runner or manual fallback workflow exits before committing — preventing bad data from reaching the dashboard.
 
 ## Data sources
 
