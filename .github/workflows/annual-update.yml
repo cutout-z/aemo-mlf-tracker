@@ -1,11 +1,8 @@
 name: Annual MLF Update
 
 on:
-  schedule:
-    # April 15 — AEMO publishes final MLFs for the upcoming FY in April
-    - cron: '0 0 15 4 *'
-    # October 15 — AEMO publishes draft/indicative MLFs in October
-    - cron: '0 0 15 10 *'
+  # Scheduled production updates run on the Hetzner VPS via systemd.
+  # Keep this workflow as a manual verification/fallback runner.
   workflow_dispatch:
     inputs:
       full_refresh:
