@@ -1,0 +1,14 @@
+[Unit]
+Description=Run AEMO MLF Tracker final/draft refresh
+Documentation=https://github.com/cutout-z/aemo-mlf-tracker
+
+[Timer]
+# Final MLFs are normally published in April; draft/indicative MLFs in October.
+OnCalendar=*-04-15 00:45:00
+OnCalendar=*-10-15 00:45:00
+RandomizedDelaySec=1h
+Persistent=true
+Unit=aemo-mlf-tracker.service
+
+[Install]
+WantedBy=timers.target
