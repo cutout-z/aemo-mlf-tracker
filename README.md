@@ -21,7 +21,7 @@ Automated tracker for Marginal Loss Factors (MLFs) across all generator assets i
 | **Asset types** | Generator, Network Load, Ancillary Service, Demand Response |
 | **Fuel types** | Solar, Wind, Hydro, Fossil, Battery, Other Renewable |
 | **History** | FY15-16 to FY26-27 (12 years) |
-| **Update frequency** | Annual/draft-annual Hetzner VPS refresh (final MLFs in April, draft/indicative MLFs in October) |
+| **Update frequency** | Annual/draft-annual NAS lane refresh (final MLFs in April, draft/indicative MLFs in October) |
 
 ## Dashboard features
 
@@ -79,9 +79,11 @@ python -m src.main --full-refresh  # re-download everything
 
 ## Automation
 
-Production updates run on the Hetzner VPS via `aemo-mlf-tracker.timer`; see [`deploy/README.md`](deploy/README.md) for setup details. The VPS lane intentionally uses `--full-refresh` because the source footprint is small and AEMO publishes final/draft MLF data on an annual cadence.
+Production updates run on the **NAS runner** (QNAP `ai-wif-runner` container) via the `nas-job aemo-mlf-tracker` lane; see [`deploy/README.md`](deploy/README.md) for details. A QNAP scheduled task fires the lane on AEMO's final (April) and draft/indicative (October) MLF publication cadence. The lane intentionally uses `--full-refresh` because the source footprint is small and AEMO publishes final/draft MLF data on an annual cadence.
 
-GitHub Actions is kept as a manual verification/fallback runner. GitHub Pages deploys after the VPS pushes updated outputs.
+The lane commits as `aemo-nas-bot` and pushes its updated outputs. GitHub Actions is kept as a manual verification/fallback runner. GitHub Pages deploys on those pushes.
+
+*Historical:* this lane ran on a Hetzner VPS under the `aemo-mlf-tracker.timer` systemd timer before the 2026-09 NAS migration. That setup is retired and its unit files were deleted in the same cleanup.
 
 ## Output Validation
 
@@ -95,7 +97,7 @@ After the pipeline runs and before committing, an automated validation step (`te
 - YOY_CHANGE is consistent with LATEST_MLF - PREV_MLF (within 0.001 tolerance)
 - All 5 regional Excel workbooks exist
 
-If any check fails, the VPS runner or manual fallback workflow exits before committing — preventing bad data from reaching the dashboard.
+If any check fails, the NAS lane or manual fallback workflow exits before committing — preventing bad data from reaching the dashboard.
 
 ## Data sources
 
