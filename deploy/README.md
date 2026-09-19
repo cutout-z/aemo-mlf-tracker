@@ -1,41 +1,35 @@
-# VPS Annual Updates
+# Annual Updates — NAS runner (production)
 
-Production model:
+The production model:
 
-- Hetzner VPS runs the annual final/draft MLF refreshes.
+- The **NAS runner** (QNAP `ai-wif-runner` container) runs the annual
+  final/draft MLF refreshes.
 - GitHub stores code and publishable `outputs/`.
-- GitHub Pages deploys after the VPS pushes updated outputs.
-- GitHub Actions remains available for manual verification, but should not be the primary scheduled data runner.
+- GitHub Pages deploys after the NAS lane pushes updated outputs.
+- GitHub Actions remains available for manual verification, but is not the
+  primary scheduled data runner.
 
-The source data footprint is tiny, so the VPS lane intentionally runs `--full-refresh` rather than preserving long-lived source caches.
+The source data footprint is tiny, so the lane intentionally runs
+`--full-refresh` rather than preserving long-lived source caches.
 
 ## Lane
 
-| Lane | Timer | Pipeline args | Purpose |
-| --- | --- | --- | --- |
-| Annual MLF refresh | `aemo-mlf-tracker.timer` | `--full-refresh` | Refresh final MLFs in April and draft/indicative MLFs in October. |
+QNAP scheduled tasks invoke `nas-job aemo-mlf-tracker`, which runs this repo's
+`deploy/run-update.sh` (renamed from the retired VPS-era `run-vps-update.sh`
+in the 2026-09 cleanup) with the lane's `PIPELINE_ARGS`:
 
-Recommended layout:
+| Lane | `PIPELINE_ARGS` | Purpose |
+| --- | --- | --- |
+| Annual MLF refresh | `--full-refresh` | Refresh final MLFs in April and draft/indicative MLFs in October. |
 
-```text
-/opt/aemo-mlf-tracker      git checkout + virtualenv
-/etc/aemo-mlf-tracker/env  service settings
-```
+The lane registry, cadence windows and report paths live in
+`tools/nas-runner/configs/brain-ops.nas.toml` (the NAS runner tooling).
+`deploy/run-update.sh` runs the full test suite and commits/pushes only when
+`outputs/` changed, and the script self-heals a rewritten `main`: if
+`git pull --ff-only` is impossible it resets onto the fetched remote instead
+of exiting 128.
 
-Create `/etc/aemo-mlf-tracker/env` from `env.example`. The service user needs a repo-scoped deploy key that can push to `cutout-z/aemo-mlf-tracker`.
+## Env
 
-## Install Timer
-
-```bash
-sudo cp deploy/aemo-mlf-tracker.service /etc/systemd/system/
-sudo cp deploy/aemo-mlf-tracker.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now aemo-mlf-tracker.timer
-```
-
-Run once manually:
-
-```bash
-sudo systemctl start aemo-mlf-tracker.service
-journalctl -u aemo-mlf-tracker.service -f
-```
+`deploy/env.example` documents the settings the lane injects (`APP_DIR`,
+`PIPELINE_ARGS`, test/push toggles).
