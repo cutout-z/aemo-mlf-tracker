@@ -1,43 +1,31 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AEMO MLF Tracker — NEM Generator Loss Factors</title>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="assets/css/app.css">
 <style>
-  :root { --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a; --text: #e0e0e0; --muted: #888; --accent: #4472C4; --green: #63BE7B; --red: #F8696B; --yellow: #FFEB84; }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 24px; }
-  h1 { font-size: 1.5rem; margin-bottom: 4px; }
-  .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 20px; }
-
-  .controls { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
-  .tabs { display: flex; gap: 4px; flex-wrap: wrap; }
-  .tab { padding: 8px 18px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 6px 6px 0 0; cursor: pointer; font-size: 0.9rem; transition: all 0.15s; }
-  .tab:hover { color: var(--text); border-color: var(--accent); }
-  .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-
-  .filters { display: flex; gap: 8px; align-items: center; margin-left: auto; }
-  select, input[type="text"] { padding: 6px 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 4px; font-size: 0.85rem; }
-  input[type="text"] { width: 200px; }
-
-  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; max-height: 75vh; }
+  /* Pass 1, step 1: the shell (frame, header, stat row, controls, downloads, footer) is on the token
+     layer in assets/css/app.css. What is left here is the two tables and their cells, which steps 3-6
+     move onto the tokens; until then they read the tokens by name and keep their own literal colours. */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; max-height: 75vh; }
   table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
   th { background: var(--accent); color: #fff; padding: 8px 10px; text-align: center; position: sticky; top: 0; white-space: nowrap; z-index: 1; cursor: pointer; }
   th:first-child { text-align: center; width: 40px; cursor: default; }
   th:nth-child(2) { text-align: left; }
-  th:hover { background: #3a62a4; }
-  th:first-child:hover { background: var(--accent); }
-  th.sorted-asc::after { content: " ▲"; }
-  th.sorted-desc::after { content: " ▼"; }
-  td { padding: 6px 10px; text-align: center; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th:hover { filter: brightness(0.9); }
+  th:first-child:hover { filter: none; }
+  th.sorted-asc::after { content: " \25B2"; }
+  th.sorted-desc::after { content: " \25BC"; }
+  td { padding: 6px 10px; text-align: center; border-bottom: 1px solid var(--line); white-space: nowrap; }
   td:first-child { text-align: center; width: 40px; }
   td:nth-child(2) { text-align: left; font-weight: 500; }
   td:nth-child(3) { text-align: left; }
-  tr:hover td { background: rgba(68,114,196,0.08); }
-  tr.selected td { background: rgba(68,114,196,0.18); }
+  tr:hover td { background: var(--surface-2); }
+  tr.selected td { background: var(--accent-wash); }
 
   .cb { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
 
@@ -61,50 +49,37 @@
   .status-retired { opacity: 0.45; }
   .badge-retired { display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 0.68rem; font-weight: 600; background: rgba(136,136,136,0.2); color: var(--muted); border: 1px solid rgba(136,136,136,0.3); margin-left: 5px; vertical-align: middle; letter-spacing: 0.03em; }
 
-  .stats { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
-  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 18px; min-width: 140px; }
-  .stat-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; }
-  .stat-value { font-size: 1.3rem; font-weight: 600; margin-top: 2px; }
-
-  .actions { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
-  .action-btn { padding: 8px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--accent); font-size: 0.85rem; cursor: pointer; transition: all 0.15s; }
-  .action-btn:hover { background: var(--accent); color: #fff; }
-  .action-btn:disabled { opacity: 0.4; cursor: default; }
-  .action-btn:disabled:hover { background: var(--surface); color: var(--accent); }
-  .sel-count { color: var(--muted); font-size: 0.85rem; }
-
-  .downloads { margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap; }
-  .dl-btn { display: inline-block; padding: 8px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--accent); text-decoration: none; font-size: 0.85rem; transition: all 0.15s; }
-  .dl-btn:hover { background: var(--accent); color: #fff; }
-  .footer { margin-top: 24px; color: var(--muted); font-size: 0.78rem; }
   .loading { text-align: center; padding: 40px; color: var(--muted); }
   .section-title { font-size: 1.1rem; margin: 24px 0 8px; color: var(--text); font-weight: 600; }
 </style>
 </head>
 <body>
+<main class="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6">
 
-<h1>AEMO MLF Tracker</h1>
-<p class="subtitle">Marginal Loss Factors for NEM generator assets by financial year — tracking trends and degradation</p>
+<header class="mb-5">
+  <div class="eyebrow">National Electricity Market</div>
+  <h1 class="mt-1 text-[22px] font-semibold leading-7">AEMO MLF Tracker</h1>
+  <p class="card-sub max-w-[72ch]">Marginal Loss Factors for NEM generator assets by financial year — tracking trends and degradation</p>
+</header>
 
-<div class="stats" id="stats"></div>
+<section class="card mb-4">
+  <div class="card-body grid grid-cols-2 gap-x-6 gap-y-5 pt-4 sm:grid-cols-3 lg:grid-cols-5" id="stats"></div>
+</section>
 
-<div class="controls">
-  <div class="tabs" id="tabs"></div>
-  <div class="filters">
-    <select id="regionFilter" style="display:none"><option value="">All Regions</option></select>
-    <select id="typeFilter"><option value="">All Types</option></select>
-    <select id="fuelFilter"><option value="">All Fuel Types</option></select>
-    <input type="text" id="search" placeholder="Search DUID or station...">
-    <label style="display:flex;align-items:center;gap:5px;font-size:0.82rem;color:var(--muted);cursor:pointer;white-space:nowrap">
-      <input type="checkbox" id="showRetired"> Show retired DUIDs
-    </label>
+<div class="card mb-4 flex flex-wrap items-center gap-2 p-2" id="controls">
+  <div class="seg" id="tabs" role="group" aria-label="Region"></div>
+  <select id="regionFilter" class="input w-auto" aria-label="Region" style="display:none"><option value="">All Regions</option></select>
+  <select id="typeFilter" class="input w-auto" aria-label="Type"><option value="">All Types</option></select>
+  <select id="fuelFilter" class="input w-auto" aria-label="Fuel type"><option value="">All Fuel Types</option></select>
+  <input type="text" id="search" class="input w-full min-w-[12rem] sm:w-auto sm:flex-1" placeholder="Search DUID or station..." aria-label="Search DUID or station">
+  <label class="flex cursor-pointer items-center gap-2 whitespace-nowrap px-1 text-[12px] text-muted">
+    <input type="checkbox" id="showRetired" class="cb"> Show retired DUIDs
+  </label>
+  <div class="flex flex-wrap items-center gap-2 sm:ml-auto" id="actions">
+    <span class="badge empty:hidden" id="selCount" aria-live="polite"></span>
+    <button class="btn btn-ghost" id="clearSelection" style="display:none">Clear Selection</button>
+    <button class="btn btn-primary disabled:cursor-default disabled:opacity-40" id="exportSelected" disabled>Export Selected to Excel</button>
   </div>
-</div>
-
-<div class="actions" id="actions">
-  <button class="action-btn" id="exportSelected" disabled>Export Selected to Excel</button>
-  <button class="action-btn" id="clearSelection" style="display:none">Clear Selection</button>
-  <span class="sel-count" id="selCount"></span>
 </div>
 
 <div class="loading" id="loading">Loading data...</div>
@@ -119,8 +94,12 @@
   <div class="table-wrap"><table id="battTable"><thead id="battThead"></thead><tbody id="battTbody"></tbody></table></div>
 </div>
 
-<div class="downloads" id="downloads"></div>
-<div class="footer" id="footer"></div>
+<section class="card mt-4">
+  <div class="card-body flex flex-wrap items-center gap-2" id="downloads"></div>
+  <div class="card-foot" id="footer"></div>
+</section>
+
+</main>
 
 <script>
 const REGIONS = {NSW1:'NSW',QLD1:'QLD',VIC1:'VIC',SA1:'SA',TAS1:'TAS'};
@@ -222,7 +201,7 @@ function renderStats() {
   });
 
   document.getElementById('stats').innerHTML = displayFuels.map(fuel =>
-    `<div class="stat-card"><div class="stat-label">${fuel}</div><div class="stat-value">${counts[fuel]}</div></div>`
+    `<div><div class="kpi-value">${counts[fuel]}</div><div class="kpi-label">${fuel}</div></div>`
   ).join('');
 }
 
@@ -231,7 +210,8 @@ function renderTabs() {
   container.innerHTML = '';
 
   const allBtn = document.createElement('button');
-  allBtn.className = 'tab' + (activeRegion === 'ALL' ? ' active' : '');
+  allBtn.className = 'seg-item' + (activeRegion === 'ALL' ? ' seg-item-active' : '');
+  allBtn.setAttribute('aria-pressed', activeRegion === 'ALL');
   allBtn.textContent = 'All';
   allBtn.onclick = () => {
     activeRegion = 'ALL';
@@ -242,7 +222,8 @@ function renderTabs() {
 
   for (const [id, name] of Object.entries(REGIONS)) {
     const btn = document.createElement('button');
-    btn.className = 'tab' + (id === activeRegion ? ' active' : '');
+    btn.className = 'seg-item' + (id === activeRegion ? ' seg-item-active' : '');
+    btn.setAttribute('aria-pressed', id === activeRegion);
     btn.textContent = name;
     btn.onclick = () => {
       activeRegion = id;
@@ -493,11 +474,11 @@ function exportSelectedToExcel() {
 
 function renderDownloads() {
   const container = document.getElementById('downloads');
-  container.innerHTML = '<strong style="width:100%;margin-bottom:4px">Download Excel:&nbsp;</strong>' +
+  container.innerHTML = '<span class="mr-1 text-[12px] font-medium text-muted">Download Excel:</span>' +
     Object.entries(REGIONS).map(([id, name]) =>
-      `<a class="dl-btn" href="outputs/${EXCEL_FILES[id]}" download>${name}</a>`
+      `<a class="btn" href="outputs/${EXCEL_FILES[id]}" download>${name}</a>`
     ).join('') +
-    `<a class="dl-btn" href="outputs/summary.csv" download>CSV (All)</a>`;
+    `<a class="btn" href="outputs/summary.csv" download>CSV (All)</a>`;
 }
 
 function populateFilters() {
