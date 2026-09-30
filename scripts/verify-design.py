@@ -137,30 +137,67 @@ def main() -> int:
               f"generators {gen} + batteries {batt}")
         check(gen > 0 and batt > 0, "both the generator and the battery table render",
               f"{gen} / {batt}")
-        cells = pg.eval_on_selector_all(
-            "#genTbody td.mlf-cell, #battTbody td.mlf-cell",
+        ramped = pg.eval_on_selector_all(
+            "#genTbody td.mlf-cell:not(.imp), #battTbody td.mlf-cell:not(.imp)",
             "e => e.map(x => ({cls: x.className, txt: x.innerText.trim(), bg: getComputedStyle(x).backgroundColor}))")
-        check(len(cells) >= 500, "the MLF cells render", f"{len(cells)} cells")
+        imported = pg.eval_on_selector_all(
+            "#battTbody td.mlf-cell.imp",
+            "e => e.map(x => ({cls: x.className, txt: x.innerText.trim(), bg: getComputedStyle(x).backgroundColor,"
+                 " bl: getComputedStyle(x).borderLeftStyle}))")
+        check(len(ramped) >= 400, "the MLF cells render", f"{len(ramped)} ramped cells")
         # `.seq-none` is the token file's own step for "no value"; a stated N/A is on the ramp system, not off it.
         on_ramp = r"\bseq-(\d|none)\b"
-        seq = [c for c in cells if re.search(on_ramp, c["cls"] or "")]
-        check(len(seq) == len(cells), "every MLF cell uses the .seq-* ramp",
-              f"{len(cells) - len(seq)} cells not on the ramp")
-        check(not [c for c in cells if "rgb" in (c["bg"] or "") and not re.search(on_ramp, c["cls"] or "")],
+        seq = [c for c in ramped if re.search(on_ramp, c["cls"] or "")]
+        check(len(seq) == len(ramped), "every export MLF cell uses the .seq-* ramp",
+              f"{len(ramped) - len(seq)} cells not on the ramp")
+        check(not [c for c in ramped if "rgb" in (c["bg"] or "") and not re.search(on_ramp, c["cls"] or "")],
               "no MLF cell carries an inline rgb() colour")
+        # An import MLF multiplies the price a LOAD pays, so a lower one is cheaper charging, not a bigger
+        # loss — 124 of the 159 published values here are below 1.00. On the shared ramp they read as the
+        # deepest losses on the page, which is the one thing they are not. The number stays, the dashed
+        # marking stays, the fill stays off.
+        check(len(imported) >= 100, "the battery table's import MLF cells render", f"{len(imported)} cells")
+        check(not [c for c in imported if re.search(r"\bseq-[0-7]\b", c["cls"] or "")],
+              "import MLF cells are NOT on the loss ramp (lower = cheaper, not more lost)",
+              f"{[c['txt'] for c in imported if re.search(r'seq-[0-7]', c['cls'] or '')][:3]}")
+        check(all(c["bl"] == "dashed" for c in imported),
+              "import MLF cells keep their dashed marking", sorted({c["bl"] for c in imported}))
+        bad_val = [c["txt"] for c in imported
+                   if not (len(c["txt"]) == 6 and c["txt"][1] == ".") and c["txt"].upper() not in ("N/A", "NA")]
+        check(not bad_val, "import MLF cells state their value", f"{bad_val[:3]}")
         # A class can be present and still lose the cascade (a page rule out-ranking `.seq-*`), which
         # leaves the cell unfilled while every name-based check passes. Compare the pixels to the tokens.
         ramp_rgb = {rgb(dark[f"seq-{i}"]) for i in range(8) if f"seq-{i}" in dark}
-        numeric = [c for c in cells if re.fullmatch(r"\d*\.?\d+", c["txt"].replace(",", ""))]
+        numeric = [c for c in ramped if re.fullmatch(r"\d*\.?\d+", c["txt"].replace(",", ""))]
         unfilled = [c for c in numeric if rgb(c["bg"]) not in ramp_rgb]
-        check(not unfilled, "every numeric MLF cell is actually filled from the ramp",
+        check(not unfilled, "every numeric export MLF cell is actually filled from the ramp",
               f"{len(unfilled)} of {len(numeric)} unfilled, e.g. {unfilled[:2]}")
         steps = {int(re.search(r"\bseq-(\d)\b", c["cls"]).group(1)) for c in seq if re.search(r"\bseq-(\d)\b", c["cls"])}
         check(len(steps) >= 4, "the ramp is graded, not one flat step", f"steps used: {sorted(steps)}")
-        na = [c for c in cells if c["txt"].upper() in ("N/A", "NA")]
+        na = [c for c in ramped if c["txt"].upper() in ("N/A", "NA")]
         check(len(na) >= blank_cells * 0.5,
               "unpublished MLF values are stated, not left blank",
               f"{len(na)} stated vs {blank_cells} blank cells in the CSV today")
+        # The import change columns carry the sign only: a RISING import MLF is dearer charging, so the
+        # generator good/bad colours are inverted there. Read the column by index and check the colour.
+        iyoy = pg.evaluate("""() => {
+            const labels = [...document.querySelectorAll('#battThead tr:last-child th')].map(x => x.innerText.trim());
+            const off = 7, idx = [];
+            labels.forEach((l, i) => { if (/^Import YoY/.test(l)) idx.push(i + off); });
+            const out = [];
+            for (const r of document.querySelectorAll('#battTbody tr')) {
+              const tds = r.querySelectorAll('td');
+              for (const i of idx) { const td = tds[i]; if (!td) continue;
+                const t = td.innerText.trim(); if (!t || t.toUpperCase() === 'N/A') continue;
+                out.push({t: t, c: getComputedStyle(td).color, cls: td.className}); } }
+            return out; }""")
+        good_bad = {rgb(dark[k]) for k in ("good", "bad") if k in dark}
+        coloured = [c for c in iyoy if rgb(c["c"]) in good_bad]
+        check(bool(iyoy) and not coloured, "import YoY carries its sign without the good/bad colour",
+              f"{len(coloured)} of {len(iyoy)} coloured, e.g. {coloured[:2]}")
+        check(bool(iyoy) and all(re.match(r"^[+\u2212]", c["t"]) or re.match(r"^0(\.0+)?%?$", c["t"]) for c in iyoy),
+              "import YoY still prints its sign (a zero change is unsigned by design)",
+              f"{[c['t'] for c in iyoy[:4]]}")
         legend = pg.eval_on_selector_all("[data-heat-legend]",
                                         "e => e.map(x => x.innerText.trim())")
         check(bool(legend) and bool(" ".join(legend).strip()),
@@ -199,6 +236,10 @@ def main() -> int:
             "e => e.map(x => ({t: (x.innerText||x.id||x.type).slice(0,18), h: Math.round(x.getBoundingClientRect().height)}))"
                  ".filter(x => x.h > 0 && x.h < 32)")
         check(not small, "every interactive target is >= 32px tall at 390px", f"{small[:4]}")
+        # NB: the "MLF by financial year" group label cannot be pinned for a sideways scroll — measured
+        # on a 390px phone, the sticky clamp caps it at the colspan cell's own right edge (21px of strip
+        # at full scroll), and pinning behind the pinned columns hides it instead. The meaning is carried
+        # by the card head and the legend, which stay visible because the table scrolls in its own box.
 
         state = br.new_page(viewport={"width": 1440, "height": 900})
         state.route("**/outputs/summary.csv", lambda r: r.abort())

@@ -152,7 +152,7 @@
   <div class="card-head">
     <div>
       <h2 class="card-title" id="battTitle">Battery Storage</h2>
-      <p class="card-sub max-w-[90ch]">Batteries are DUIDs with fuel category Battery. Cells work as in the generator table. The columns marked <strong class="font-medium text-ink">Import</strong> are the MLF applied when the battery draws power from the grid to charge: a factor on the price it pays, not the price it receives. They use the same ramp so the two can be compared, but a low import MLF is not a loss to the battery.</p>
+      <p class="card-sub max-w-[90ch]">Batteries are DUIDs with fuel category Battery. Cells work as in the generator table. The columns marked <strong class="font-medium text-ink">Import</strong> are the MLF applied when the battery draws power from the grid to charge: a factor on the price it pays, not the price it receives. It carries no heat fill, because a low import MLF means the battery charges <strong class="font-medium text-ink">more cheaply</strong> — the opposite of a loss.</p>
     </div>
   </div>
   <div class="px-5 pb-3 pt-3" id="battLegend"></div>
@@ -189,13 +189,15 @@ function mlfStep(v) { const i = MLF_EDGES.findIndex(e => v >= e); return i < 0 ?
 
 const NA_MLF = 'No MLF published for this financial year';
 const NA_YOY = 'No year-on-year change in the file for this asset';
+const NA_IMP = 'Import MLF: the factor on the price this battery pays to charge, so lower is cheaper, not more lost';
 
 const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-function heatLegend() {
+function heatLegend(withImport) {
   const sw = MLF_LABELS.map((l, i) => `<span class="lg seq-${i}">${l}</span>`).join('');
   return `<div class="flex flex-wrap items-start gap-x-8 gap-y-3">` +
     `<div data-heat-legend="mlf"><div class="mb-1.5 text-[12px] font-medium text-muted">MLF, read as price lost (1 − MLF). Stronger fill = more lost</div><div class="flex flex-wrap gap-0.5">${sw}</div></div>` +
+    (withImport ? `<div data-heat-legend="import"><div class="mb-1.5 text-[12px] font-medium text-muted">Import MLF (batteries). Lower is cheaper to charge, not more lost — printed with no fill</div><div class="flex items-center gap-2"><span class="lg" style="border-left:1px dashed var(--accent)">0.9176</span><span class="max-w-[44ch] text-[12px] leading-4 text-faint">A load-side factor, so it is not on the loss ramp.</span></div></div>` : '') +
     `<div data-heat-legend="na"><div class="mb-1.5 text-[12px] font-medium text-muted">Not available</div><div class="flex items-center gap-2"><span class="lg seq-none na">N/A</span><span class="max-w-[42ch] text-[12px] leading-4 text-faint">${NA_MLF}.</span></div></div>` +
     `</div>`;
 }
@@ -410,7 +412,10 @@ function renderOneTable(opts) {
     { col: 'FUEL_CATEGORY', label: 'Fuel' },
     { col: 'CAPACITY_MW', label: 'MW', cls: 'r' },
   ];
-  const isImp = c => c.includes('Import') && (c.startsWith('FY') || c.startsWith('IMPORT'));
+  // Import columns arrive under two naming conventions: the page's own FY labels ("FY26-27 Import")
+  // and the CSV's settlement keys ("IMPORT_YOY_CHANGE"). Both are load-side factors. Missing the
+  // second is how the import YoY column ended up coloured with the generator convention.
+  const isImp = c => c.startsWith('IMPORT') || (c.startsWith('FY') && c.includes('Import'));
   const isDft = c => c.includes('Draft');
   const isChange = c => c.includes('YOY');
 
@@ -464,10 +469,16 @@ function renderOneTable(opts) {
 
     fyColumns.forEach(fy => {
       const val = parseFloat(row[fy]);
-      const tag = (isImp(fy) ? ' imp' : '') + (isDft(fy) ? ' dft' : '');
+      const imp = isImp(fy);
+      const tag = (imp ? ' imp' : '') + (isDft(fy) ? ' dft' : '');
+      // An import MLF multiplies the price a LOAD pays, so a low one is cheaper charging, not a bigger
+      // loss. It keeps its number and the dashed marking but stays OFF the loss ramp: filled from the
+      // ramp, the cheapest charge prices became the strongest cells on the page.
       cells.push(isNaN(val)
         ? `<td class="mlf-cell h r num seq-none na${tag}" title="${NA_MLF}">N/A</td>`
-        : `<td class="mlf-cell h r num seq-${mlfStep(val)}${tag}">${val.toFixed(4)}</td>`);
+        : imp
+          ? `<td class="mlf-cell h r num${tag}" title="${NA_IMP}">${val.toFixed(4)}</td>`
+          : `<td class="mlf-cell h r num seq-${mlfStep(val)}${tag}">${val.toFixed(4)}</td>`);
     });
 
     extraCols.forEach(col => {
@@ -669,8 +680,8 @@ if (typeof Papa === 'undefined') {
       `${allData.length} DUIDs tracked (${Object.entries(types).sort((a, b) => b[1] - a[1]).map(([t, n]) => `${n} ${t}`).join(', ')}) · ${nLive} live, ${allData.length - nLive} retired · ` +
       `${fyCols[0] || '?'} to ${fyCols[fyCols.length - 1] || '?'} · Source: AEMO DUDETAILSUMMARY via MMSDM Archive`;
 
-    document.getElementById('genLegend').innerHTML = heatLegend();
-    document.getElementById('battLegend').innerHTML = heatLegend();
+    document.getElementById('genLegend').innerHTML = heatLegend(false);
+    document.getElementById('battLegend').innerHTML = heatLegend(true);   // only the battery table has import columns
     populateFilters();
     renderTabs();
     renderStats();

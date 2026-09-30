@@ -87,3 +87,36 @@ file and `tailwind.config.js` (frozen); the XLSX export code and filename shape;
     `Technology` and every FY column regardless of what the table shows.
 11. `tools/tailwindcss` is gitignored; `assets/css/app.css` must be rebuilt (`./scripts/build-css.sh`)
     after any class change.
+
+## Follow-up (Hermes, 2026-09-30): the Import columns off the loss ramp
+
+Item 1 above is confirmed, and it changed more than the wording. In the NEM the MLF is a multiplier on
+the regional reference price to give the local price at each connection point — the same form in both
+directions, which is why loads "tend to have MLFs greater than one: the price paid by the load is
+increased" (AEMC, Application of Dual Marginal Loss Factors, quoting NER 3.6.2(b)(2) — the clause that
+exists so a bidirectional point gets two MLFs). A **low** import MLF therefore means the battery charges
+cheaply. Two corrections followed:
+
+- **Import MLF cells are off the loss ramp.** 124 of the 159 published values are below 1.00, so on the
+  shared ramp the cheapest charge prices drew the strongest "more lost" fill — QPSFB2 FY25-26 showed
+  export 1.0190 with no fill beside import 0.9176 at `seq-6`. They keep the number (right-aligned, 4 dp),
+  the dashed accent marking and the `imp` class; they no longer carry `seq-*`. The card-head sentence
+  saying they "use the same ramp so the two can be compared" was corrected, and the battery legend
+  gained a stated import rule (`data-heat-legend="import"`).
+- **Import YoY is sign-only.** The intent was already in the code (`tone = imp ? '' : …`) but `isImp()`
+  matched only `FY… Import` and never the CSV's `IMPORT_YOY_*` keys, so `imp` was false and the
+  generator good/bad colours were applied — a **rising** import MLF (dearer charging) rendered green.
+  `isImp()` now covers both naming conventions, and the import YoY header/cells pick up the dashed
+  marking for free.
+
+`scripts/verify-design.py` gained three checks so neither can come back: import cells must not be on the
+ramp, must keep their dashed marking, and import YoY must print its sign with no good/bad colour. Proven
+by reverting `index.html` to `9961657` and watching exactly those two go red. Gates on the fixed page:
+data exit 0 · behaviour 28/28 · render 34/34.
+
+Measured, not fixed — **the "MLF by financial year" group label cannot be pinned for a sideways scroll.**
+The colspan cell is ~924 px wide, so the sticky clamp holds its left edge at the containing block's right
+edge; a nested sticky label clamps to the same edge (at 390 px, full scroll leaves a 21 px strip for a
+235 px label), and pinning it behind the pinned columns hides it instead. The meaning is carried by the
+card head and the legend, which stay visible because the table scrolls inside its own box — so it is left
+as-is deliberately, with a comment in the gate where a check would otherwise have gone.
