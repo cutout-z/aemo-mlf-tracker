@@ -27,6 +27,8 @@
   tr:hover td { background: var(--surface-2); }
   tr.selected td { background: var(--accent-wash); }
 
+  .switch input { z-index: 1; }   /* the pseudo-element knob is later in paint order and would otherwise take the click */
+  .switch:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
   .cb { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
 
   .mlf-cell { font-variant-numeric: tabular-nums; }
@@ -67,19 +69,23 @@
   <div class="card-foot" id="statsFoot"></div>
 </section>
 
-<div class="card mb-4 flex flex-wrap items-center gap-2 p-2" id="controls">
-  <div class="seg" id="tabs" role="group" aria-label="Region"></div>
-  <select id="regionFilter" class="input w-auto" aria-label="Region" style="display:none"><option value="">All Regions</option></select>
-  <select id="typeFilter" class="input w-auto" aria-label="Type"><option value="">All Types</option></select>
-  <select id="fuelFilter" class="input w-auto" aria-label="Fuel type"><option value="">All Fuel Types</option></select>
-  <input type="text" id="search" class="input w-full min-w-[12rem] sm:w-auto sm:flex-1" placeholder="Search DUID or station..." aria-label="Search DUID or station">
-  <label class="flex cursor-pointer items-center gap-2 whitespace-nowrap px-1 text-[12px] text-muted">
-    <input type="checkbox" id="showRetired" class="cb"> Show retired DUIDs
-  </label>
-  <div class="flex flex-wrap items-center gap-2 sm:ml-auto" id="actions">
-    <span class="badge empty:hidden" id="selCount" aria-live="polite"></span>
-    <button class="btn btn-ghost" id="clearSelection" style="display:none">Clear Selection</button>
-    <button class="btn btn-primary disabled:cursor-default disabled:opacity-40" id="exportSelected" disabled>Export Selected to Excel</button>
+<div class="z-30 -mt-1 mb-4 bg-bg pb-2 pt-1 sm:sticky sm:top-0" id="controls">
+  <div class="card flex flex-wrap items-center gap-2 p-2">
+    <div class="seg" id="tabs" role="group" aria-label="Region"></div>
+    <select id="regionFilter" class="input w-auto" aria-label="Region"><option value="">All Regions</option></select>
+    <select id="typeFilter" class="input w-auto" aria-label="Type"><option value="">All Types</option></select>
+    <select id="fuelFilter" class="input w-auto" aria-label="Fuel type"><option value="">All Fuel Types</option></select>
+    <input type="text" id="search" class="input w-full min-w-[12rem] sm:w-auto sm:flex-1" placeholder="Search DUID or station..." aria-label="Search DUID or station">
+    <label class="flex h-8 cursor-pointer items-center gap-2 whitespace-nowrap px-1 text-[12px] text-muted">
+      <span class="switch"><input type="checkbox" id="showRetired" role="switch"></span>
+      Show retired DUIDs
+    </label>
+    <div class="flex flex-wrap items-center gap-2 sm:ml-auto" id="actions">
+      <span class="badge" id="rowCount" aria-live="polite"></span>
+      <span class="badge empty:hidden" id="selCount" aria-live="polite"></span>
+      <button class="btn btn-ghost" id="clearSelection" style="display:none">Clear Selection</button>
+      <button class="btn btn-primary disabled:cursor-default disabled:opacity-40" id="exportSelected" disabled>Export Selected to Excel</button>
+    </div>
   </div>
 </div>
 
@@ -465,6 +471,9 @@ function renderTables() {
     extraLabels: ['YoY', 'YoY %', 'Import YoY', 'Import YoY %']
   });
 
+  const denom = getBaseRows().filter(r => document.getElementById('showRetired').checked || r.STATUS !== 'Retired').length;
+  const shown = allFiltered.length;
+  document.getElementById('rowCount').textContent = shown === denom ? `${shown} DUIDs shown` : `${shown} of ${denom} DUIDs shown`;
   document.getElementById('loading').style.display = 'none';
 }
 
