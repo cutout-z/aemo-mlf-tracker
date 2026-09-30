@@ -11,48 +11,58 @@
   /* Pass 1, step 1: the shell (frame, header, stat row, controls, downloads, footer) is on the token
      layer in assets/css/app.css. What is left here is the two tables and their cells, which steps 3-6
      move onto the tokens; until then they read the tokens by name and keep their own literal colours. */
-  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; max-height: 75vh; }
-  table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
-  th { background: var(--accent); color: #fff; padding: 8px 10px; text-align: center; position: sticky; top: 0; white-space: nowrap; z-index: 1; cursor: pointer; }
-  th:first-child { text-align: center; width: 40px; cursor: default; }
-  th:nth-child(2) { text-align: left; }
-  th:hover { filter: brightness(0.9); }
-  th:first-child:hover { filter: none; }
-  th.sorted-asc::after { content: " \25B2"; }
-  th.sorted-desc::after { content: " \25BC"; }
-  td { padding: 6px 10px; text-align: center; border-bottom: 1px solid var(--line); white-space: nowrap; }
-  td:first-child { text-align: center; width: 40px; }
-  td:nth-child(2) { text-align: left; font-weight: 500; }
-  td:nth-child(3) { text-align: left; }
-  tr:hover td { background: var(--surface-2); }
-  tr.selected td { background: var(--accent-wash); }
-
   .switch input { z-index: 1; }   /* the pseudo-element knob is later in paint order and would otherwise take the click */
   .switch:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .cb { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
 
-  .mlf-cell { font-variant-numeric: tabular-nums; }
-  .draft-header { background: #5a4a8a !important; }
-  .draft-header:hover { background: #4a3a7a !important; }
-  .draft-cell { border-left: 2px dashed #7b68ae; }
-  .import-header { background: #4a6a3a !important; }
-  .import-header:hover { background: #3a5a2a !important; }
-  .change-pos { color: #63BE7B; }
-  .change-neg { color: #F8696B; }
-  .change-neutral { color: var(--muted); }
+  /* The two tables. Every colour is a token; the only page-specific decision is which token a column family uses. */
+  .fam-mlf { --fam: var(--good); }
+  .fam-chg { --fam: var(--neutral); }
 
-  .type-badge { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap; }
-  .type-generator { background: rgba(99,190,123,0.15); color: #63BE7B; border: 1px solid rgba(99,190,123,0.3); }
-  .type-network { background: rgba(100,160,240,0.15); color: #64a0f0; border: 1px solid rgba(100,160,240,0.3); }
-  .type-interconnector { background: rgba(180,130,240,0.15); color: #b482f0; border: 1px solid rgba(180,130,240,0.3); }
-  .type-scheduled { background: rgba(255,200,80,0.15); color: #ffc850; border: 1px solid rgba(255,200,80,0.3); }
-  .type-customer { background: rgba(255,160,80,0.15); color: #ffa050; border: 1px solid rgba(255,160,80,0.3); }
-  .type-unknown { background: rgba(136,136,136,0.15); color: var(--muted); border: 1px solid rgba(136,136,136,0.25); }
-  .status-retired { opacity: 0.45; }
-  .badge-retired { display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 0.68rem; font-weight: 600; background: rgba(136,136,136,0.2); color: var(--muted); border: 1px solid rgba(136,136,136,0.3); margin-left: 5px; vertical-align: middle; letter-spacing: 0.03em; }
+  .table-wrap { overflow: auto; max-height: 75vh; }
+  .dt { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; line-height: 20px; }
+
+  .dt thead th { position: sticky; z-index: 3; height: 32px; padding: 0 12px; background: var(--surface); color: var(--muted); font-size: 12px; font-weight: 500; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line); }
+  .dt thead tr:first-child th { top: 0; }
+  .dt thead tr:nth-child(2) th { top: 32px; }
+  .dt thead th[rowspan] { vertical-align: middle; }
+  .dt thead th.r { text-align: right; }
+  .dt thead th.gh { color: var(--text); font-weight: 600; background: color-mix(in srgb, var(--fam) 16%, var(--surface)); border-top: 3px solid var(--fam); border-bottom: 1px solid var(--line-soft); }
+  .dt thead th.ch { background: color-mix(in srgb, var(--fam) 9%, var(--surface)); border-bottom: 2px solid var(--fam); }
+  .dt thead th.imp { background: var(--accent-wash); color: var(--text); border-left: 1px dashed var(--accent); }
+  .dt thead th.dft { background: var(--warn-wash); color: var(--text); border-left: 1px dashed var(--warn); }
+  .dt th[data-col] { cursor: pointer; user-select: none; }
+  .dt th[data-col]:hover { color: var(--text); }
+  .dt th[data-col]:hover::after { content: "\2195"; margin-left: 4px; opacity: .6; }
+  .dt th[aria-sort="ascending"]::after,  .dt th[aria-sort="ascending"]:hover::after  { content: "\2191"; margin-left: 4px; color: var(--accent); opacity: 1; }
+  .dt th[aria-sort="descending"]::after, .dt th[aria-sort="descending"]:hover::after { content: "\2193"; margin-left: 4px; color: var(--accent); opacity: 1; }
+
+  .dt tbody td { height: 36px; padding: 0 12px; border-bottom: 1px solid var(--line-soft); white-space: nowrap; }
+  .dt tbody td:not([class*="seq-"]) { background: var(--surface); }   /* a heat cell keeps its own step */
+  .dt tbody tr:hover td:not([class*="seq-"]) { background: var(--surface-2); }
+  .dt tbody tr.selected td:not([class*="seq-"]) { background: var(--accent-wash); }
+  .dt tbody tr.selected td.p0 { box-shadow: inset 2px 0 0 var(--accent); }
+  .dt tbody tr.status-retired td:not([class*="seq-"]) { color: var(--muted); }
+  .dt td.st { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }   /* long station names must not push the MLF columns off screen */
+  .dt td.r { text-align: right; }
+  .dt td.h { min-width: 76px; }
+  .dt td.imp { border-left: 1px dashed var(--accent); }
+  .dt td.dft { border-left: 1px dashed var(--warn); }
+  .dt td.pos { color: var(--good); }
+  .dt td.neg { color: var(--bad); }
+  .na { color: var(--faint); }   /* .seq-none makes text transparent; a stated N/A must stay readable */
+
+  /* The checkbox and the DUID stay in view when the table scrolls sideways (the phone case). */
+  .dt .p0, .dt .p1 { position: sticky; z-index: 2; }
+  .dt thead .p0, .dt thead .p1 { z-index: 5; }
+  .dt .p0 { left: 0; width: 44px; min-width: 44px; max-width: 44px; padding: 0; }
+  .dt .p1 { left: 44px; min-width: 104px; box-shadow: 1px 0 0 var(--line); }
+  .cbl { display: flex; align-items: center; justify-content: center; width: 44px; height: 100%; min-height: 32px; cursor: pointer; }
+  .cb { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+
+  /* Legend swatches reuse the ramp classes themselves, so a swatch can never disagree with a cell. */
+  .lg { display: inline-flex; height: 24px; min-width: 54px; align-items: center; justify-content: center; padding: 0 6px; border-radius: 4px; font-size: 12px; font-variant-numeric: tabular-nums; }
 
   .loading { text-align: center; padding: 40px; color: var(--muted); }
-  .section-title { font-size: 1.1rem; margin: 24px 0 8px; color: var(--text); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -91,15 +101,31 @@
 
 <div class="loading" id="loading">Loading data...</div>
 
-<div id="genSection" style="display:none">
-  <h2 class="section-title" id="genTitle">Generators</h2>
-  <div class="table-wrap"><table id="genTable"><thead id="genThead"></thead><tbody id="genTbody"></tbody></table></div>
-</div>
+<section id="genSection" class="card mb-4 overflow-hidden" style="display:none">
+  <div class="card-head">
+    <div>
+      <h2 class="card-title" id="genTitle">Generators</h2>
+      <p class="card-sub max-w-[90ch]">One row per DUID that is not a battery. Each cell is the DUID's MLF for that financial year: the share of the regional price it receives, so 1.0000 means no loss. <strong class="font-medium text-ink">YoY</strong> is the latest MLF minus the one before (a fall means more price lost) and <strong class="font-medium text-ink">YoY %</strong> is the same change as a percentage. Click a column to sort; the default is the latest year with the deepest loss first.</p>
+    </div>
+  </div>
+  <div class="px-5 pb-3 pt-3" id="genLegend"></div>
+  <div class="table-wrap border-t border-line-soft"><table class="dt" id="genTable"><thead id="genThead"></thead><tbody id="genTbody"></tbody></table></div>
+  <div class="state border-t border-line-soft px-5" id="genState" style="display:none"><div><div class="state-title"></div><div class="state-body"></div></div></div>
+  <div class="card-foot" id="genFoot"></div>
+</section>
 
-<div id="battSection" style="display:none">
-  <h2 class="section-title" id="battTitle">Battery Storage</h2>
-  <div class="table-wrap"><table id="battTable"><thead id="battThead"></thead><tbody id="battTbody"></tbody></table></div>
-</div>
+<section id="battSection" class="card mb-4 overflow-hidden" style="display:none">
+  <div class="card-head">
+    <div>
+      <h2 class="card-title" id="battTitle">Battery Storage</h2>
+      <p class="card-sub max-w-[90ch]">Batteries are DUIDs with fuel category Battery. Cells work as in the generator table. The columns marked <strong class="font-medium text-ink">Import</strong> are the MLF applied when the battery draws power from the grid to charge: a factor on the price it pays, not the price it receives. They use the same ramp so the two can be compared, but a low import MLF is not a loss to the battery.</p>
+    </div>
+  </div>
+  <div class="px-5 pb-3 pt-3" id="battLegend"></div>
+  <div class="table-wrap border-t border-line-soft"><table class="dt" id="battTable"><thead id="battThead"></thead><tbody id="battTbody"></tbody></table></div>
+  <div class="state border-t border-line-soft px-5" id="battState" style="display:none"><div><div class="state-title"></div><div class="state-body"></div></div></div>
+  <div class="card-foot" id="battFoot"></div>
+</section>
 
 <section class="card mt-4">
   <div class="card-body flex flex-wrap items-center gap-2" id="downloads"></div>
@@ -120,33 +146,24 @@ let activeRegion = 'ALL';
 let sortState = { gen: { col: null, dir: 'asc' }, batt: { col: null, dir: 'asc' } };
 let selected = new Set();
 
-function mlfColor(val) {
-  if (val === '' || val === null || isNaN(val)) return '';
-  const lo = 0.80, mid = 0.95, hi = 1.05;
-  const v = Math.max(lo, Math.min(hi, val));
-  let r, g, b;
-  if (v <= mid) {
-    const t = (v - lo) / (mid - lo);
-    r = Math.round(248 + (255 - 248) * t);
-    g = Math.round(105 + (235 - 105) * t);
-    b = Math.round(107 + (132 - 107) * t);
-  } else {
-    const t = (v - mid) / (hi - mid);
-    r = Math.round(255 + (99 - 255) * t);
-    g = Math.round(235 + (190 - 235) * t);
-    b = Math.round(132 + (123 - 132) * t);
-  }
-  return `rgb(${r},${g},${b})`;
-}
+// MLF is a ratio centred on 1.0000, not a magnitude, so it is read as PRICE LOST (1 − MLF) on the one
+// sequential ramp: 1.0000 or above = no fill, a deeper loss = a stronger step. Same edges and labels
+// as the AEMO Renewable Generator Dashboard. The JS only picks a step; colour comes from .seq-* tokens.
+const MLF_EDGES = [1.00, 0.98, 0.96, 0.94, 0.92, 0.90, 0.85];   // step = first edge the value reaches
+const MLF_LABELS = ['≥1.00', '0.98–1.00', '0.96–0.98', '0.94–0.96', '0.92–0.94', '0.90–0.92', '0.85–0.90', '<0.85'];
+function mlfStep(v) { const i = MLF_EDGES.findIndex(e => v >= e); return i < 0 ? 7 : i; }
 
-function textColor(val) {
-  if (val === '' || val === null || isNaN(val)) return '';
-  return val >= 0.85 && val <= 1.02 ? '#1a1a1a' : '#e0e0e0';
-}
+const NA_MLF = 'No MLF published for this financial year';
+const NA_YOY = 'No year-on-year change in the file for this asset';
 
-function changeClass(val) {
-  if (val === '' || val === null || isNaN(val)) return 'change-neutral';
-  return val > 0 ? 'change-pos' : val < 0 ? 'change-neg' : 'change-neutral';
+const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function heatLegend() {
+  const sw = MLF_LABELS.map((l, i) => `<span class="lg seq-${i}">${l}</span>`).join('');
+  return `<div class="flex flex-wrap items-start gap-x-8 gap-y-3">` +
+    `<div data-heat-legend="mlf"><div class="mb-1.5 text-[12px] font-medium text-muted">MLF, read as price lost (1 − MLF). Stronger fill = more lost</div><div class="flex flex-wrap gap-0.5">${sw}</div></div>` +
+    `<div data-heat-legend="na"><div class="mb-1.5 text-[12px] font-medium text-muted">Not available</div><div class="flex items-center gap-2"><span class="lg seq-none na">N/A</span><span class="max-w-[42ch] text-[12px] leading-4 text-faint">${NA_MLF}.</span></div></div>` +
+    `</div>`;
 }
 
 function getBaseRows() {
@@ -294,71 +311,105 @@ function toggleSelect(duid) {
   }
 }
 
+function emptyReason(noun) {
+  const parts = [];
+  if (activeRegion !== 'ALL') parts.push(`region ${REGIONS[activeRegion]}`);
+  else if (document.getElementById('regionFilter').value) parts.push(`region ${REGIONS[document.getElementById('regionFilter').value]}`);
+  const type = document.getElementById('typeFilter').value, fuel = document.getElementById('fuelFilter').value;
+  const search = document.getElementById('search').value.trim();
+  if (type) parts.push(`type ${type}`);
+  if (fuel) parts.push(`fuel ${fuel}`);
+  if (search) parts.push(`search “${search}”`);
+  let msg = parts.length ? `No ${noun} match ${parts.join(', ')}.` : `No ${noun} in the file.`;
+  if (fuel === 'Battery' && noun === 'generators') msg += ' Batteries are in their own table.';
+  else if (fuel && fuel !== 'Battery' && noun === 'batteries') msg += ' Batteries have fuel category Battery only.';
+  if (!document.getElementById('showRetired').checked) msg += ' Retired DUIDs are hidden; turn on “Show retired DUIDs” to include them.';
+  return msg;
+}
+
 function renderOneTable(opts) {
-  const { rows: unsortedRows, theadId, tbodyId, tableId, wrapId, sectionId, titleId,
-          titleText, sortKey, fyColumns, extraCols, extraLabels } = opts;
+  const { rows: unsortedRows, theadId, tbodyId, sectionId, titleId, titleText, noun, sortKey,
+          fyColumns, extraCols, extraLabels } = opts;
 
   const section = document.getElementById(sectionId);
   const thead = document.getElementById(theadId);
   const tbody = document.getElementById(tbodyId);
+  const wrap = section.querySelector('.table-wrap');
+  const state = section.querySelector('.state');
+  const showRetired = document.getElementById('showRetired').checked;
 
-  if (unsortedRows.length === 0) {
-    section.style.display = 'none';
-    return;
-  }
   section.style.display = '';
   document.getElementById(titleId).textContent = `${titleText} (${unsortedRows.length})`;
+  const nRet = unsortedRows.filter(r => r.STATUS === 'Retired').length;
+  document.getElementById(sectionId.replace('Section', 'Foot')).innerHTML = [
+    'Source: AEMO DUDETAILSUMMARY via MMSDM Archive',
+    'MLFs are published annually: final in April, draft/indicative in October',
+    `${unsortedRows.length} ${noun} shown (${showRetired ? `live and retired, ${nRet} retired` : 'live only'}), after the filters above`,
+    `N/A = ${NA_MLF.charAt(0).toLowerCase() + NA_MLF.slice(1)}; in the change columns, no change in the file`,
+    ...(draftCols.length ? ['Draft columns are indicative, not yet final'] : []),
+    ...(sortKey === 'batt' ? ['YoY is coloured for the price received only; Import YoY carries its sign without a colour'] : []),
+  ].map(t => `<span>${t}</span>`).join('<span class="hidden sm:inline" aria-hidden="true">·</span>');
+
+  // An empty result is stated, and no stale rows or header stay behind in the hidden table.
+  if (unsortedRows.length === 0) {
+    thead.innerHTML = '';
+    tbody.innerHTML = '';
+    wrap.style.display = 'none';
+    state.style.display = '';
+    state.querySelector('.state-title').textContent = `No ${noun} match these filters`;
+    state.querySelector('.state-body').textContent = emptyReason(noun);
+    updateSelectionUI();
+    return;
+  }
+  wrap.style.display = '';
+  state.style.display = 'none';
 
   const ss = sortState[sortKey];
   const rows = sortRows(unsortedRows, ss.col, ss.dir);
-
   const showRegionCol = activeRegion === 'ALL';
-  const metaCols = showRegionCol
-    ? ['DUID', 'DUID_TYPE', 'STATION_NAME', 'REGIONID', 'FUEL_CATEGORY', 'CAPACITY_MW']
-    : ['DUID', 'DUID_TYPE', 'STATION_NAME', 'FUEL_CATEGORY', 'CAPACITY_MW'];
-  const metaLabels = showRegionCol
-    ? ['DUID', 'Type', 'Station', 'Region', 'Fuel', 'MW']
-    : ['DUID', 'Type', 'Station', 'Fuel', 'MW'];
 
-  const allCols = [...metaCols, ...fyColumns, ...extraCols];
-  const allLabels = [...metaLabels, ...fyColumns, ...extraLabels];
+  const meta = [
+    { col: 'DUID', label: 'DUID', cls: 'p1' },
+    { col: 'DUID_TYPE', label: 'Type' },
+    { col: 'STATION_NAME', label: 'Station' },
+    ...(showRegionCol ? [{ col: 'REGIONID', label: 'Region' }] : []),
+    { col: 'FUEL_CATEGORY', label: 'Fuel' },
+    { col: 'CAPACITY_MW', label: 'MW', cls: 'r' },
+  ];
+  const isImp = c => c.includes('Import') && (c.startsWith('FY') || c.startsWith('IMPORT'));
+  const isDft = c => c.includes('Draft');
+  const isChange = c => c.includes('YOY');
 
+  const sortAttrs = col => `data-col="${esc(col)}" data-sort-key="${sortKey}" tabindex="0" aria-sort="${col === ss.col ? (ss.dir === 'asc' ? 'ascending' : 'descending') : 'none'}"`;
   const allChecked = rows.length > 0 && rows.every(r => selected.has(r.DUID));
 
-  thead.innerHTML = '<tr><th><input type="checkbox" class="cb" data-selectall="' + sortKey + '" ' +
-    (allChecked ? 'checked' : '') + '></th>' +
-    allLabels.map((l, i) => {
-      const col = allCols[i];
-      const sortCls = col === ss.col ? (ss.dir === 'asc' ? 'sorted-asc' : 'sorted-desc') : '';
-      const isDraft = col.includes('Draft');
-      const isImport = col.includes('Import') && col.startsWith('FY');
-      const headerCls = isDraft ? ' draft-header' : isImport ? ' import-header' : '';
-      return `<th class="${sortCls}${headerCls}" data-col="${col}" data-sort-key="${sortKey}">${l}</th>`;
-    }).join('') + '</tr>';
+  const row1 = `<th class="p0" rowspan="2"><label class="cbl"><input type="checkbox" class="cb" data-selectall="${sortKey}" aria-label="Select all shown ${noun}" ${allChecked ? 'checked' : ''}></label></th>` +
+    meta.map(m => `<th class="${m.cls || ''}" rowspan="2" ${sortAttrs(m.col)}>${m.label}</th>`).join('') +
+    (fyColumns.length ? `<th class="gh fam-mlf" colspan="${fyColumns.length}">MLF by financial year (1.0000 = no loss)</th>` : '') +
+    (extraCols.length ? `<th class="gh fam-chg" colspan="${extraCols.length}">Change on the previous year</th>` : '');
+  const row2 = fyColumns.map(c => `<th class="ch fam-mlf r${isImp(c) ? ' imp' : ''}${isDft(c) ? ' dft' : ''}" ${sortAttrs(c)}>${esc(c)}</th>`).join('') +
+    extraCols.map((c, i) => `<th class="ch fam-chg r${isImp(c) ? ' imp' : ''}" ${sortAttrs(c)}>${esc(extraLabels[i])}</th>`).join('');
+  thead.innerHTML = `<tr>${row1}</tr><tr>${row2}</tr>`;
 
-  // Select-all handler
   thead.querySelector('[data-selectall]').onchange = () => {
     const allSel = unsortedRows.every(r => selected.has(r.DUID));
-    if (allSel) {
-      unsortedRows.forEach(r => selected.delete(r.DUID));
-    } else {
-      unsortedRows.forEach(r => selected.add(r.DUID));
-    }
+    unsortedRows.forEach(r => allSel ? selected.delete(r.DUID) : selected.add(r.DUID));
     updateSelectionUI();
     renderTables();
   };
 
-  // Sort handlers
   thead.querySelectorAll('th[data-col]').forEach(th => {
-    th.onclick = () => {
-      const col = th.dataset.col;
-      const key = th.dataset.sortKey;
-      const s = sortState[key];
-      if (s.col === col) { s.dir = s.dir === 'asc' ? 'desc' : 'asc'; }
-      else { s.col = col; s.dir = 'asc'; }
+    const sort = () => {
+      const col = th.dataset.col, s = sortState[th.dataset.sortKey];
+      if (s.col === col) s.dir = s.dir === 'asc' ? 'desc' : 'asc'; else { s.col = col; s.dir = 'asc'; }
       renderTables();
     };
+    th.onclick = sort;
+    th.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sort(); } };
   });
+
+  const stated = (v, why) => v ? esc(v) : `<span class="na" title="${why}">Not stated</span>`;
+  const sign = v => v > 0 ? '+' : v < 0 ? '−' : '';
 
   tbody.innerHTML = rows.map(row => {
     const duid = row.DUID || '';
@@ -366,67 +417,40 @@ function renderOneTable(opts) {
     const isRetired = row.STATUS === 'Retired';
     const cells = [];
 
-    cells.push(`<td><input type="checkbox" class="cb" ${isSelected ? 'checked' : ''} data-duid="${duid}"></td>`);
-
-    const retiredBadge = isRetired ? ' <span class="badge-retired">retired</span>' : '';
-    cells.push(`<td>${duid}${retiredBadge}</td>`);
+    cells.push(`<td class="p0"><label class="cbl"><input type="checkbox" class="cb" ${isSelected ? 'checked' : ''} data-duid="${esc(duid)}" aria-label="Select ${esc(duid)}"></label></td>`);
+    cells.push(`<td class="p1 font-medium">${esc(duid)}${isRetired ? ' <span class="badge ml-1.5">retired</span>' : ''}</td>`);
 
     const typeVal = row.DUID_TYPE || 'Unknown';
-    const typeCls = typeVal === 'Generator' ? 'type-generator'
-      : typeVal === 'Network Load' ? 'type-network'
-      : typeVal === 'Interconnector' ? 'type-interconnector'
-      : typeVal === 'Scheduled Load' ? 'type-scheduled'
-      : typeVal === 'Market Customer' ? 'type-customer'
-      : 'type-unknown';
-    cells.push(`<td><span class="type-badge ${typeCls}">${typeVal}</span></td>`);
-
-    cells.push(`<td>${row.STATION_NAME || ''}</td>`);
-    if (showRegionCol) {
-      cells.push(`<td>${REGIONS[row.REGIONID] || row.REGIONID || ''}</td>`);
-    }
-    cells.push(`<td>${row.FUEL_CATEGORY || ''}</td>`);
-
+    cells.push(`<td>${typeVal === 'Generator' ? 'Generator' : `<span class="badge">${esc(typeVal)}</span>`}</td>`);
+    cells.push(`<td class="st" title="${esc(row.STATION_NAME)}">${stated(row.STATION_NAME, 'No station name in the file')}</td>`);
+    if (showRegionCol) cells.push(`<td>${stated(REGIONS[row.REGIONID] || row.REGIONID, 'No region in the file')}</td>`);
+    cells.push(`<td>${stated(row.FUEL_CATEGORY, 'No fuel category in the file')}</td>`);
     const cap = parseFloat(row.CAPACITY_MW);
-    cells.push(`<td>${isNaN(cap) ? '' : cap.toFixed(0)}</td>`);
+    cells.push(isNaN(cap) ? `<td class="r na" title="No capacity in the file">N/A</td>` : `<td class="r num">${cap.toFixed(0)}</td>`);
 
-    // FY cells with heatmap
     fyColumns.forEach(fy => {
       const val = parseFloat(row[fy]);
-      const isDraft = fy.includes('Draft');
-      if (isNaN(val)) {
-        cells.push(`<td class="mlf-cell${isDraft ? ' draft-cell' : ''}">-</td>`);
-      } else {
-        const bg = mlfColor(val);
-        const fg = textColor(val);
-        cells.push(`<td class="mlf-cell${isDraft ? ' draft-cell' : ''}" style="background:${bg};color:${fg}">${val.toFixed(4)}</td>`);
-      }
+      const tag = (isImp(fy) ? ' imp' : '') + (isDft(fy) ? ' dft' : '');
+      cells.push(isNaN(val)
+        ? `<td class="mlf-cell h r num seq-none na${tag}" title="${NA_MLF}">N/A</td>`
+        : `<td class="mlf-cell h r num seq-${mlfStep(val)}${tag}">${val.toFixed(4)}</td>`);
     });
 
-    // Extra cols (YoY)
     extraCols.forEach(col => {
       const val = parseFloat(row[col]);
-      const isPct = col.includes('PCT');
-      if (isNaN(val)) {
-        cells.push(`<td class="change-neutral">-</td>`);
-      } else {
-        const cls = changeClass(val);
-        const formatted = isPct
-          ? (val > 0 ? '+' : '') + val.toFixed(2) + '%'
-          : (val > 0 ? '+' : '') + val.toFixed(4);
-        cells.push(`<td class="${cls}">${formatted}</td>`);
-      }
+      const imp = isImp(col);
+      if (isNaN(val)) { cells.push(`<td class="r na${imp ? ' imp' : ''}" title="${NA_YOY}">N/A</td>`); return; }
+      const txt = col.includes('PCT') ? sign(val) + Math.abs(val).toFixed(2) + '%' : sign(val) + Math.abs(val).toFixed(4);
+      const tone = imp ? '' : val > 0 ? ' pos' : val < 0 ? ' neg' : '';
+      cells.push(`<td class="r num${tone}${imp ? ' imp' : ''}">${txt}</td>`);
     });
 
     const rowClass = [isSelected ? 'selected' : '', isRetired ? 'status-retired' : ''].filter(Boolean).join(' ');
-    return `<tr data-duid="${duid}" class="${rowClass}">${cells.join('')}</tr>`;
+    return `<tr data-duid="${esc(duid)}" class="${rowClass}">${cells.join('')}</tr>`;
   }).join('');
 
-  // Checkbox click handlers
   tbody.querySelectorAll('.cb').forEach(cb => {
-    cb.onchange = (e) => {
-      e.stopPropagation();
-      toggleSelect(cb.dataset.duid);
-    };
+    cb.onchange = (e) => { e.stopPropagation(); toggleSelect(cb.dataset.duid); };
   });
 
   updateSelectionUI();
@@ -453,9 +477,8 @@ function renderTables() {
 
   renderOneTable({
     rows: genRows,
-    theadId: 'genThead', tbodyId: 'genTbody', tableId: 'genTable',
-    wrapId: 'genTableWrap', sectionId: 'genSection', titleId: 'genTitle',
-    titleText: 'Generators', sortKey: 'gen',
+    theadId: 'genThead', tbodyId: 'genTbody', sectionId: 'genSection', titleId: 'genTitle',
+    titleText: 'Generators', noun: 'generators', sortKey: 'gen',
     fyColumns: genFyCols,
     extraCols: ['YOY_CHANGE', 'YOY_PCT_CHANGE'],
     extraLabels: ['YoY', 'YoY %']
@@ -463,9 +486,8 @@ function renderTables() {
 
   renderOneTable({
     rows: battRows,
-    theadId: 'battThead', tbodyId: 'battTbody', tableId: 'battTable',
-    wrapId: 'battTableWrap', sectionId: 'battSection', titleId: 'battTitle',
-    titleText: 'Battery Storage', sortKey: 'batt',
+    theadId: 'battThead', tbodyId: 'battTbody', sectionId: 'battSection', titleId: 'battTitle',
+    titleText: 'Battery Storage', noun: 'batteries', sortKey: 'batt',
     fyColumns: battFyCols,
     extraCols: ['YOY_CHANGE', 'YOY_PCT_CHANGE', 'IMPORT_YOY_CHANGE', 'IMPORT_YOY_PCT_CHANGE'],
     extraLabels: ['YoY', 'YoY %', 'Import YoY', 'Import YoY %']
@@ -586,6 +608,8 @@ Papa.parse('outputs/summary.csv', {
       `${allData.length} DUIDs tracked (${Object.entries(types).sort((a, b) => b[1] - a[1]).map(([t, n]) => `${n} ${t}`).join(', ')}) · ${nLive} live, ${allData.length - nLive} retired · ` +
       `${fyCols[0] || '?'} to ${fyCols[fyCols.length - 1] || '?'} · Source: AEMO DUDETAILSUMMARY via MMSDM Archive`;
 
+    document.getElementById('genLegend').innerHTML = heatLegend();
+    document.getElementById('battLegend').innerHTML = heatLegend();
     populateFilters();
     renderTabs();
     renderStats();
