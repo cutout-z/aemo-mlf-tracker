@@ -7,11 +7,23 @@
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="assets/css/app.css">
+<script>
+  // Theme before first paint: ?theme=light|dark forces one (and is not remembered); otherwise the viewer's
+  // last choice; otherwise the dark default already on <html>.
+  (function () {
+    var t = null;
+    try {
+      var q = new URLSearchParams(location.search).get('theme');
+      t = (q === 'light' || q === 'dark') ? q : localStorage.getItem('theme');
+    } catch (e) {}
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  })();
+</script>
 <style>
   /* Pass 1, step 1: the shell (frame, header, stat row, controls, downloads, footer) is on the token
      layer in assets/css/app.css. What is left here is the two tables and their cells, which steps 3-6
      move onto the tokens; until then they read the tokens by name and keep their own literal colours. */
-  .switch input { z-index: 1; }   /* the pseudo-element knob is later in paint order and would otherwise take the click */
+  .switch input { z-index: 1; top: -6px; bottom: -6px; height: 32px; }   /* a 32px hit area around the 20px switch */   /* the pseudo-element knob is later in paint order and would otherwise take the click */
   .switch:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   /* The two tables. Every colour is a token; the only page-specific decision is which token a column family uses. */
@@ -56,30 +68,42 @@
   .dt thead .p0, .dt thead .p1 { z-index: 5; }
   .dt .p0 { left: 0; width: 44px; min-width: 44px; max-width: 44px; padding: 0; }
   .dt .p1 { left: 44px; min-width: 104px; box-shadow: 1px 0 0 var(--line); }
-  .cbl { display: flex; align-items: center; justify-content: center; width: 44px; height: 100%; min-height: 32px; cursor: pointer; }
-  .cb { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+  /* Checkbox: the real input fills the whole 44 x 32+ cell (a proper tap target) and is invisible; .cbx draws the 16px box. */
+  .cbl { position: relative; display: flex; align-items: center; justify-content: center; width: 44px; height: 100%; min-height: 32px; cursor: pointer; }
+  .cb { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+  .cbx { position: relative; width: 16px; height: 16px; border: 1.5px solid var(--line-strong); border-radius: 4px; background: var(--surface); pointer-events: none; transition: background-color .12s, border-color .12s; }
+  .cb:hover + .cbx { border-color: var(--muted); }
+  .cb:checked + .cbx { background: var(--accent); border-color: var(--accent); }
+  .cb:checked + .cbx::after { content: ""; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px; border: solid var(--bg); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  .cb:focus-visible + .cbx { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  @media (max-width: 639px) {
+    .seg-item { height: 32px; }   /* the family's 28px segment is below the 32px tap floor on a phone */
+  }
 
   /* Legend swatches reuse the ramp classes themselves, so a swatch can never disagree with a cell. */
   .lg { display: inline-flex; height: 24px; min-width: 54px; align-items: center; justify-content: center; padding: 0 6px; border-radius: 4px; font-size: 12px; font-variant-numeric: tabular-nums; }
 
-  .loading { text-align: center; padding: 40px; color: var(--muted); }
 </style>
 </head>
 <body>
 <main class="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6">
 
-<header class="mb-5">
+<header class="mb-5 flex items-start justify-between gap-4">
+  <div>
   <div class="eyebrow">National Electricity Market · marginal loss factors</div>
   <h1 class="mt-1 text-[22px] font-semibold leading-7">AEMO MLF Tracker</h1>
   <p class="card-sub max-w-[72ch]">How much of the regional price does each asset lose on the way in, and is it getting worse? A marginal loss factor (MLF) is the share of the regional price a DUID receives: 1.0000 means no loss, 0.9000 means 10% lost.</p>
+  </div>
+  <button class="btn btn-ghost shrink-0" id="themeToggle" type="button">Light mode</button>
 </header>
 
-<section class="card mb-4">
+<section class="card mb-4" id="statsSection" style="display:none">
   <div class="card-body pt-4" id="stats"></div>
   <div class="card-foot" id="statsFoot"></div>
 </section>
 
-<div class="z-30 -mt-1 mb-4 bg-bg pb-2 pt-1 sm:sticky sm:top-0" id="controls">
+<div class="z-30 -mt-1 mb-4 bg-bg pb-2 pt-1 sm:sticky sm:top-0" id="controls" style="display:none">
   <div class="card flex flex-wrap items-center gap-2 p-2">
     <div class="seg" id="tabs" role="group" aria-label="Region"></div>
     <select id="regionFilter" class="input w-auto" aria-label="Region"><option value="">All Regions</option></select>
@@ -99,7 +123,17 @@
   </div>
 </div>
 
-<div class="loading" id="loading">Loading data...</div>
+<section class="card mb-4" id="loading" aria-busy="true">
+  <div class="card-body space-y-3 pt-5" id="loadingBody">
+    <span class="sr-only">Loading data</span>
+    <div class="skeleton h-5 w-40"></div>
+    <div class="skeleton h-8 w-full"></div>
+    <div class="skeleton h-8 w-full"></div>
+    <div class="skeleton h-8 w-full"></div>
+    <div class="skeleton h-8 w-full"></div>
+    <div class="skeleton h-8 w-full"></div>
+  </div>
+</section>
 
 <section id="genSection" class="card mb-4 overflow-hidden" style="display:none">
   <div class="card-head">
@@ -129,7 +163,7 @@
 
 <section class="card mt-4">
   <div class="card-body flex flex-wrap items-center gap-2" id="downloads"></div>
-  <div class="card-foot" id="footer"></div>
+  <div class="card-foot" id="footer">Source: AEMO DUDETAILSUMMARY via MMSDM Archive</div>
 </section>
 
 </main>
@@ -383,7 +417,7 @@ function renderOneTable(opts) {
   const sortAttrs = col => `data-col="${esc(col)}" data-sort-key="${sortKey}" tabindex="0" aria-sort="${col === ss.col ? (ss.dir === 'asc' ? 'ascending' : 'descending') : 'none'}"`;
   const allChecked = rows.length > 0 && rows.every(r => selected.has(r.DUID));
 
-  const row1 = `<th class="p0" rowspan="2"><label class="cbl"><input type="checkbox" class="cb" data-selectall="${sortKey}" aria-label="Select all shown ${noun}" ${allChecked ? 'checked' : ''}></label></th>` +
+  const row1 = `<th class="p0" rowspan="2"><label class="cbl"><input type="checkbox" class="cb" data-selectall="${sortKey}" aria-label="Select all shown ${noun}" ${allChecked ? 'checked' : ''}><span class="cbx"></span></label></th>` +
     meta.map(m => `<th class="${m.cls || ''}" rowspan="2" ${sortAttrs(m.col)}>${m.label}</th>`).join('') +
     (fyColumns.length ? `<th class="gh fam-mlf" colspan="${fyColumns.length}">MLF by financial year (1.0000 = no loss)</th>` : '') +
     (extraCols.length ? `<th class="gh fam-chg" colspan="${extraCols.length}">Change on the previous year</th>` : '');
@@ -417,7 +451,7 @@ function renderOneTable(opts) {
     const isRetired = row.STATUS === 'Retired';
     const cells = [];
 
-    cells.push(`<td class="p0"><label class="cbl"><input type="checkbox" class="cb" ${isSelected ? 'checked' : ''} data-duid="${esc(duid)}" aria-label="Select ${esc(duid)}"></label></td>`);
+    cells.push(`<td class="p0"><label class="cbl"><input type="checkbox" class="cb" ${isSelected ? 'checked' : ''} data-duid="${esc(duid)}" aria-label="Select ${esc(duid)}"><span class="cbx"></span></label></td>`);
     cells.push(`<td class="p1 font-medium">${esc(duid)}${isRetired ? ' <span class="badge ml-1.5">retired</span>' : ''}</td>`);
 
     const typeVal = row.DUID_TYPE || 'Unknown';
@@ -584,12 +618,39 @@ document.getElementById('clearSelection').onclick = () => {
   renderTables();
 };
 
-Papa.parse('outputs/summary.csv', {
+// A missing, empty or blocked data file is a stated state (naming the file), not a blank page.
+function showLoadProblem(title, body) {
+  document.getElementById('loading').removeAttribute('aria-busy');
+  document.getElementById('loading').innerHTML =
+    `<div class="card-body pt-4"><div class="state"><svg class="state-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 4.75v3.9M8 10.9v.1" stroke-linecap="round"/></svg>` +
+    `<div><div class="state-title">${title}</div><div class="state-body">${body}</div></div></div></div>`;
+  renderDownloads();
+}
+
+// Theme: dark default, a toggle remembered per viewer; ?theme=light|dark forces one and is not stored.
+function syncThemeToggle() {
+  const light = document.documentElement.getAttribute('data-theme') === 'light';
+  const btn = document.getElementById('themeToggle');
+  btn.textContent = light ? 'Dark mode' : 'Light mode';
+  btn.setAttribute('aria-pressed', light);
+}
+document.getElementById('themeToggle').onclick = () => {
+  const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  try { localStorage.setItem('theme', next); } catch (e) {}
+  syncThemeToggle();
+};
+syncThemeToggle();
+
+if (typeof Papa === 'undefined') {
+  showLoadProblem('Could not load the CSV reader', 'The PapaParse script from cdn.jsdelivr.net did not load, so outputs/summary.csv cannot be read. Check the connection and reload.');
+} else Papa.parse('outputs/summary.csv', {
   download: true,
   header: true,
   skipEmptyLines: true,
   complete: function(results) {
     allData = results.data;
+    if (!allData.length) { showLoadProblem('outputs/summary.csv is empty', 'The file loaded but holds no rows, so there is nothing to show. The data update may have failed; check the file in the repository.'); return; }
     const allFyKeys = Object.keys(allData[0] || {}).filter(k => k.startsWith('FY')).sort();
     fyCols = allFyKeys.filter(k => !k.includes('Draft') && !k.includes('Import'));
     importCols = allFyKeys.filter(k => k.includes('Import'));
@@ -615,9 +676,11 @@ Papa.parse('outputs/summary.csv', {
     renderStats();
     renderTables();
     renderDownloads();
+    document.getElementById('statsSection').style.display = '';
+    document.getElementById('controls').style.display = '';
   },
   error: function() {
-    document.getElementById('loading').textContent = 'Failed to load data. Check that outputs/summary.csv exists.';
+    showLoadProblem('Could not load outputs/summary.csv', 'The page reads this file from the folder it is served from, and the request failed or the file is missing. The regional workbooks and the CSV under Download may be unavailable too.');
   }
 });
 </script>
