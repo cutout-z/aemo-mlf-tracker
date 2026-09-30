@@ -1,126 +1,172 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AEMO MLF Tracker — NEM Generator Loss Factors</title>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="assets/css/app.css">
+<script>
+  // Theme before first paint: ?theme=light|dark forces one (and is not remembered); otherwise the viewer's
+  // last choice; otherwise the dark default already on <html>.
+  (function () {
+    var t = null;
+    try {
+      var q = new URLSearchParams(location.search).get('theme');
+      t = (q === 'light' || q === 'dark') ? q : localStorage.getItem('theme');
+    } catch (e) {}
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  })();
+</script>
 <style>
-  :root { --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a; --text: #e0e0e0; --muted: #888; --accent: #4472C4; --green: #63BE7B; --red: #F8696B; --yellow: #FFEB84; }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 24px; }
-  h1 { font-size: 1.5rem; margin-bottom: 4px; }
-  .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 20px; }
+  /* Pass 1, step 1: the shell (frame, header, stat row, controls, downloads, footer) is on the token
+     layer in assets/css/app.css. What is left here is the two tables and their cells, which steps 3-6
+     move onto the tokens; until then they read the tokens by name and keep their own literal colours. */
+  .switch input { z-index: 1; top: -6px; bottom: -6px; height: 32px; }   /* a 32px hit area around the 20px switch */   /* the pseudo-element knob is later in paint order and would otherwise take the click */
+  .switch:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  .controls { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
-  .tabs { display: flex; gap: 4px; flex-wrap: wrap; }
-  .tab { padding: 8px 18px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 6px 6px 0 0; cursor: pointer; font-size: 0.9rem; transition: all 0.15s; }
-  .tab:hover { color: var(--text); border-color: var(--accent); }
-  .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  /* The two tables. Every colour is a token; the only page-specific decision is which token a column family uses. */
+  .fam-mlf { --fam: var(--good); }
+  .fam-chg { --fam: var(--neutral); }
 
-  .filters { display: flex; gap: 8px; align-items: center; margin-left: auto; }
-  select, input[type="text"] { padding: 6px 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 4px; font-size: 0.85rem; }
-  input[type="text"] { width: 200px; }
+  .table-wrap { overflow: auto; max-height: 75vh; }
+  .dt { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; line-height: 20px; }
 
-  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; max-height: 75vh; }
-  table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
-  th { background: var(--accent); color: #fff; padding: 8px 10px; text-align: center; position: sticky; top: 0; white-space: nowrap; z-index: 1; cursor: pointer; }
-  th:first-child { text-align: center; width: 40px; cursor: default; }
-  th:nth-child(2) { text-align: left; }
-  th:hover { background: #3a62a4; }
-  th:first-child:hover { background: var(--accent); }
-  th.sorted-asc::after { content: " ▲"; }
-  th.sorted-desc::after { content: " ▼"; }
-  td { padding: 6px 10px; text-align: center; border-bottom: 1px solid var(--border); white-space: nowrap; }
-  td:first-child { text-align: center; width: 40px; }
-  td:nth-child(2) { text-align: left; font-weight: 500; }
-  td:nth-child(3) { text-align: left; }
-  tr:hover td { background: rgba(68,114,196,0.08); }
-  tr.selected td { background: rgba(68,114,196,0.18); }
+  .dt thead th { position: sticky; z-index: 3; height: 32px; padding: 0 12px; background: var(--surface); color: var(--muted); font-size: 12px; font-weight: 500; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line); }
+  .dt thead tr:first-child th { top: 0; }
+  .dt thead tr:nth-child(2) th { top: 32px; }
+  .dt thead th[rowspan] { vertical-align: middle; }
+  .dt thead th.r { text-align: right; }
+  .dt thead th.gh { color: var(--text); font-weight: 600; background: color-mix(in srgb, var(--fam) 16%, var(--surface)); border-top: 3px solid var(--fam); border-bottom: 1px solid var(--line-soft); }
+  .dt thead th.ch { background: color-mix(in srgb, var(--fam) 9%, var(--surface)); border-bottom: 2px solid var(--fam); }
+  .dt thead th.imp { background: var(--accent-wash); color: var(--text); border-left: 1px dashed var(--accent); }
+  .dt thead th.dft { background: var(--warn-wash); color: var(--text); border-left: 1px dashed var(--warn); }
+  .dt th[data-col] { cursor: pointer; user-select: none; }
+  .dt th[data-col]:hover { color: var(--text); }
+  .dt th[data-col]:hover::after { content: "\2195"; margin-left: 4px; opacity: .6; }
+  .dt th[aria-sort="ascending"]::after,  .dt th[aria-sort="ascending"]:hover::after  { content: "\2191"; margin-left: 4px; color: var(--accent); opacity: 1; }
+  .dt th[aria-sort="descending"]::after, .dt th[aria-sort="descending"]:hover::after { content: "\2193"; margin-left: 4px; color: var(--accent); opacity: 1; }
 
-  .cb { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+  .dt tbody td { height: 36px; padding: 0 12px; border-bottom: 1px solid var(--line-soft); white-space: nowrap; }
+  .dt tbody td:not([class*="seq-"]) { background: var(--surface); }   /* a heat cell keeps its own step */
+  .dt tbody tr:hover td:not([class*="seq-"]) { background: var(--surface-2); }
+  .dt tbody tr.selected td:not([class*="seq-"]) { background: var(--accent-wash); }
+  .dt tbody tr.selected td.p0 { box-shadow: inset 2px 0 0 var(--accent); }
+  .dt tbody tr.status-retired td:not([class*="seq-"]) { color: var(--muted); }
+  .dt td.st { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }   /* long station names must not push the MLF columns off screen */
+  .dt td.r { text-align: right; }
+  .dt td.h { min-width: 76px; }
+  .dt td.imp { border-left: 1px dashed var(--accent); }
+  .dt td.dft { border-left: 1px dashed var(--warn); }
+  .dt td.pos { color: var(--good); }
+  .dt td.neg { color: var(--bad); }
+  .na { color: var(--faint); }   /* .seq-none makes text transparent; a stated N/A must stay readable */
 
-  .mlf-cell { font-variant-numeric: tabular-nums; }
-  .draft-header { background: #5a4a8a !important; }
-  .draft-header:hover { background: #4a3a7a !important; }
-  .draft-cell { border-left: 2px dashed #7b68ae; }
-  .import-header { background: #4a6a3a !important; }
-  .import-header:hover { background: #3a5a2a !important; }
-  .change-pos { color: #63BE7B; }
-  .change-neg { color: #F8696B; }
-  .change-neutral { color: var(--muted); }
+  /* The checkbox and the DUID stay in view when the table scrolls sideways (the phone case). */
+  .dt .p0, .dt .p1 { position: sticky; z-index: 2; }
+  .dt thead .p0, .dt thead .p1 { z-index: 5; }
+  .dt .p0 { left: 0; width: 44px; min-width: 44px; max-width: 44px; padding: 0; }
+  .dt .p1 { left: 44px; min-width: 104px; box-shadow: 1px 0 0 var(--line); }
+  /* Checkbox: the real input fills the whole 44 x 32+ cell (a proper tap target) and is invisible; .cbx draws the 16px box. */
+  .cbl { position: relative; display: flex; align-items: center; justify-content: center; width: 44px; height: 100%; min-height: 32px; cursor: pointer; }
+  .cb { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+  .cbx { position: relative; width: 16px; height: 16px; border: 1.5px solid var(--line-strong); border-radius: 4px; background: var(--surface); pointer-events: none; transition: background-color .12s, border-color .12s; }
+  .cb:hover + .cbx { border-color: var(--muted); }
+  .cb:checked + .cbx { background: var(--accent); border-color: var(--accent); }
+  .cb:checked + .cbx::after { content: ""; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px; border: solid var(--bg); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  .cb:focus-visible + .cbx { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  .type-badge { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap; }
-  .type-generator { background: rgba(99,190,123,0.15); color: #63BE7B; border: 1px solid rgba(99,190,123,0.3); }
-  .type-network { background: rgba(100,160,240,0.15); color: #64a0f0; border: 1px solid rgba(100,160,240,0.3); }
-  .type-interconnector { background: rgba(180,130,240,0.15); color: #b482f0; border: 1px solid rgba(180,130,240,0.3); }
-  .type-scheduled { background: rgba(255,200,80,0.15); color: #ffc850; border: 1px solid rgba(255,200,80,0.3); }
-  .type-customer { background: rgba(255,160,80,0.15); color: #ffa050; border: 1px solid rgba(255,160,80,0.3); }
-  .type-unknown { background: rgba(136,136,136,0.15); color: var(--muted); border: 1px solid rgba(136,136,136,0.25); }
-  .status-retired { opacity: 0.45; }
-  .badge-retired { display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 0.68rem; font-weight: 600; background: rgba(136,136,136,0.2); color: var(--muted); border: 1px solid rgba(136,136,136,0.3); margin-left: 5px; vertical-align: middle; letter-spacing: 0.03em; }
+  @media (max-width: 639px) {
+    .seg-item { height: 32px; }   /* the family's 28px segment is below the 32px tap floor on a phone */
+  }
 
-  .stats { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
-  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 18px; min-width: 140px; }
-  .stat-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; }
-  .stat-value { font-size: 1.3rem; font-weight: 600; margin-top: 2px; }
+  /* Legend swatches reuse the ramp classes themselves, so a swatch can never disagree with a cell. */
+  .lg { display: inline-flex; height: 24px; min-width: 54px; align-items: center; justify-content: center; padding: 0 6px; border-radius: 4px; font-size: 12px; font-variant-numeric: tabular-nums; }
 
-  .actions { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
-  .action-btn { padding: 8px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--accent); font-size: 0.85rem; cursor: pointer; transition: all 0.15s; }
-  .action-btn:hover { background: var(--accent); color: #fff; }
-  .action-btn:disabled { opacity: 0.4; cursor: default; }
-  .action-btn:disabled:hover { background: var(--surface); color: var(--accent); }
-  .sel-count { color: var(--muted); font-size: 0.85rem; }
-
-  .downloads { margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap; }
-  .dl-btn { display: inline-block; padding: 8px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--accent); text-decoration: none; font-size: 0.85rem; transition: all 0.15s; }
-  .dl-btn:hover { background: var(--accent); color: #fff; }
-  .footer { margin-top: 24px; color: var(--muted); font-size: 0.78rem; }
-  .loading { text-align: center; padding: 40px; color: var(--muted); }
-  .section-title { font-size: 1.1rem; margin: 24px 0 8px; color: var(--text); font-weight: 600; }
 </style>
 </head>
 <body>
+<main class="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6">
 
-<h1>AEMO MLF Tracker</h1>
-<p class="subtitle">Marginal Loss Factors for NEM generator assets by financial year — tracking trends and degradation</p>
+<header class="mb-5 flex items-start justify-between gap-4">
+  <div>
+  <div class="eyebrow">National Electricity Market · marginal loss factors</div>
+  <h1 class="mt-1 text-[22px] font-semibold leading-7">AEMO MLF Tracker</h1>
+  <p class="card-sub max-w-[72ch]">How much of the regional price does each asset lose on the way in, and is it getting worse? A marginal loss factor (MLF) is the share of the regional price a DUID receives: 1.0000 means no loss, 0.9000 means 10% lost.</p>
+  </div>
+  <button class="btn btn-ghost shrink-0" id="themeToggle" type="button">Light mode</button>
+</header>
 
-<div class="stats" id="stats"></div>
+<section class="card mb-4" id="statsSection" style="display:none">
+  <div class="card-body pt-4" id="stats"></div>
+  <div class="card-foot" id="statsFoot"></div>
+</section>
 
-<div class="controls">
-  <div class="tabs" id="tabs"></div>
-  <div class="filters">
-    <select id="regionFilter" style="display:none"><option value="">All Regions</option></select>
-    <select id="typeFilter"><option value="">All Types</option></select>
-    <select id="fuelFilter"><option value="">All Fuel Types</option></select>
-    <input type="text" id="search" placeholder="Search DUID or station...">
-    <label style="display:flex;align-items:center;gap:5px;font-size:0.82rem;color:var(--muted);cursor:pointer;white-space:nowrap">
-      <input type="checkbox" id="showRetired"> Show retired DUIDs
+<div class="z-30 -mt-1 mb-4 bg-bg pb-2 pt-1 sm:sticky sm:top-0" id="controls" style="display:none">
+  <div class="card flex flex-wrap items-center gap-2 p-2">
+    <div class="seg" id="tabs" role="group" aria-label="Region"></div>
+    <select id="regionFilter" class="input w-auto" aria-label="Region"><option value="">All Regions</option></select>
+    <select id="typeFilter" class="input w-auto" aria-label="Type"><option value="">All Types</option></select>
+    <select id="fuelFilter" class="input w-auto" aria-label="Fuel type"><option value="">All Fuel Types</option></select>
+    <input type="text" id="search" class="input w-full min-w-[12rem] sm:w-auto sm:flex-1" placeholder="Search DUID or station..." aria-label="Search DUID or station">
+    <label class="flex h-8 cursor-pointer items-center gap-2 whitespace-nowrap px-1 text-[12px] text-muted">
+      <span class="switch"><input type="checkbox" id="showRetired" role="switch"></span>
+      Show retired DUIDs
     </label>
+    <div class="flex flex-wrap items-center gap-2 sm:ml-auto" id="actions">
+      <span class="badge" id="rowCount" aria-live="polite"></span>
+      <span class="badge empty:hidden" id="selCount" aria-live="polite"></span>
+      <button class="btn btn-ghost" id="clearSelection" style="display:none">Clear Selection</button>
+      <button class="btn btn-primary disabled:cursor-default disabled:opacity-40" id="exportSelected" disabled>Export Selected to Excel</button>
+    </div>
   </div>
 </div>
 
-<div class="actions" id="actions">
-  <button class="action-btn" id="exportSelected" disabled>Export Selected to Excel</button>
-  <button class="action-btn" id="clearSelection" style="display:none">Clear Selection</button>
-  <span class="sel-count" id="selCount"></span>
-</div>
+<section class="card mb-4" id="loading" aria-busy="true">
+  <div class="card-body space-y-3 pt-5" id="loadingBody">
+    <span class="sr-only">Loading data</span>
+    <div class="skeleton h-5 w-40"></div>
+    <div class="skeleton h-8 w-full"></div>
+    <div class="skeleton h-8 w-full"></div>
+    <div class="skeleton h-8 w-full"></div>
+    <div class="skeleton h-8 w-full"></div>
+    <div class="skeleton h-8 w-full"></div>
+  </div>
+</section>
 
-<div class="loading" id="loading">Loading data...</div>
+<section id="genSection" class="card mb-4 overflow-hidden" style="display:none">
+  <div class="card-head">
+    <div>
+      <h2 class="card-title" id="genTitle">Generators</h2>
+      <p class="card-sub max-w-[90ch]">One row per DUID that is not a battery. Each cell is the DUID's MLF for that financial year: the share of the regional price it receives, so 1.0000 means no loss. <strong class="font-medium text-ink">YoY</strong> is the latest MLF minus the one before (a fall means more price lost) and <strong class="font-medium text-ink">YoY %</strong> is the same change as a percentage. Click a column to sort; the default is the latest year with the deepest loss first.</p>
+    </div>
+  </div>
+  <div class="px-5 pb-3 pt-3" id="genLegend"></div>
+  <div class="table-wrap border-t border-line-soft"><table class="dt" id="genTable"><thead id="genThead"></thead><tbody id="genTbody"></tbody></table></div>
+  <div class="state border-t border-line-soft px-5" id="genState" style="display:none"><div><div class="state-title"></div><div class="state-body"></div></div></div>
+  <div class="card-foot" id="genFoot"></div>
+</section>
 
-<div id="genSection" style="display:none">
-  <h2 class="section-title" id="genTitle">Generators</h2>
-  <div class="table-wrap"><table id="genTable"><thead id="genThead"></thead><tbody id="genTbody"></tbody></table></div>
-</div>
+<section id="battSection" class="card mb-4 overflow-hidden" style="display:none">
+  <div class="card-head">
+    <div>
+      <h2 class="card-title" id="battTitle">Battery Storage</h2>
+      <p class="card-sub max-w-[90ch]">Batteries are DUIDs with fuel category Battery. Cells work as in the generator table. The columns marked <strong class="font-medium text-ink">Import</strong> are the MLF applied when the battery draws power from the grid to charge: a factor on the price it pays, not the price it receives. It carries no heat fill, because a low import MLF means the battery charges <strong class="font-medium text-ink">more cheaply</strong> — the opposite of a loss.</p>
+    </div>
+  </div>
+  <div class="px-5 pb-3 pt-3" id="battLegend"></div>
+  <div class="table-wrap border-t border-line-soft"><table class="dt" id="battTable"><thead id="battThead"></thead><tbody id="battTbody"></tbody></table></div>
+  <div class="state border-t border-line-soft px-5" id="battState" style="display:none"><div><div class="state-title"></div><div class="state-body"></div></div></div>
+  <div class="card-foot" id="battFoot"></div>
+</section>
 
-<div id="battSection" style="display:none">
-  <h2 class="section-title" id="battTitle">Battery Storage</h2>
-  <div class="table-wrap"><table id="battTable"><thead id="battThead"></thead><tbody id="battTbody"></tbody></table></div>
-</div>
+<section class="card mt-4">
+  <div class="card-body flex flex-wrap items-center gap-2" id="downloads"></div>
+  <div class="card-foot" id="footer">Source: AEMO DUDETAILSUMMARY via MMSDM Archive</div>
+</section>
 
-<div class="downloads" id="downloads"></div>
-<div class="footer" id="footer"></div>
+</main>
 
 <script>
 const REGIONS = {NSW1:'NSW',QLD1:'QLD',VIC1:'VIC',SA1:'SA',TAS1:'TAS'};
@@ -134,33 +180,26 @@ let activeRegion = 'ALL';
 let sortState = { gen: { col: null, dir: 'asc' }, batt: { col: null, dir: 'asc' } };
 let selected = new Set();
 
-function mlfColor(val) {
-  if (val === '' || val === null || isNaN(val)) return '';
-  const lo = 0.80, mid = 0.95, hi = 1.05;
-  const v = Math.max(lo, Math.min(hi, val));
-  let r, g, b;
-  if (v <= mid) {
-    const t = (v - lo) / (mid - lo);
-    r = Math.round(248 + (255 - 248) * t);
-    g = Math.round(105 + (235 - 105) * t);
-    b = Math.round(107 + (132 - 107) * t);
-  } else {
-    const t = (v - mid) / (hi - mid);
-    r = Math.round(255 + (99 - 255) * t);
-    g = Math.round(235 + (190 - 235) * t);
-    b = Math.round(132 + (123 - 132) * t);
-  }
-  return `rgb(${r},${g},${b})`;
-}
+// MLF is a ratio centred on 1.0000, not a magnitude, so it is read as PRICE LOST (1 − MLF) on the one
+// sequential ramp: 1.0000 or above = no fill, a deeper loss = a stronger step. Same edges and labels
+// as the AEMO Renewable Generator Dashboard. The JS only picks a step; colour comes from .seq-* tokens.
+const MLF_EDGES = [1.00, 0.98, 0.96, 0.94, 0.92, 0.90, 0.85];   // step = first edge the value reaches
+const MLF_LABELS = ['≥1.00', '0.98–1.00', '0.96–0.98', '0.94–0.96', '0.92–0.94', '0.90–0.92', '0.85–0.90', '<0.85'];
+function mlfStep(v) { const i = MLF_EDGES.findIndex(e => v >= e); return i < 0 ? 7 : i; }
 
-function textColor(val) {
-  if (val === '' || val === null || isNaN(val)) return '';
-  return val >= 0.85 && val <= 1.02 ? '#1a1a1a' : '#e0e0e0';
-}
+const NA_MLF = 'No MLF published for this financial year';
+const NA_YOY = 'No year-on-year change in the file for this asset';
+const NA_IMP = 'Import MLF: the factor on the price this battery pays to charge, so lower is cheaper, not more lost';
 
-function changeClass(val) {
-  if (val === '' || val === null || isNaN(val)) return 'change-neutral';
-  return val > 0 ? 'change-pos' : val < 0 ? 'change-neg' : 'change-neutral';
+const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function heatLegend(withImport) {
+  const sw = MLF_LABELS.map((l, i) => `<span class="lg seq-${i}">${l}</span>`).join('');
+  return `<div class="flex flex-wrap items-start gap-x-8 gap-y-3">` +
+    `<div data-heat-legend="mlf"><div class="mb-1.5 text-[12px] font-medium text-muted">MLF, read as price lost (1 − MLF). Stronger fill = more lost</div><div class="flex flex-wrap gap-0.5">${sw}</div></div>` +
+    (withImport ? `<div data-heat-legend="import"><div class="mb-1.5 text-[12px] font-medium text-muted">Import MLF (batteries). Lower is cheaper to charge, not more lost — printed with no fill</div><div class="flex items-center gap-2"><span class="lg" style="border-left:1px dashed var(--accent)">0.9176</span><span class="max-w-[44ch] text-[12px] leading-4 text-faint">A load-side factor, so it is not on the loss ramp.</span></div></div>` : '') +
+    `<div data-heat-legend="na"><div class="mb-1.5 text-[12px] font-medium text-muted">Not available</div><div class="flex items-center gap-2"><span class="lg seq-none na">N/A</span><span class="max-w-[42ch] text-[12px] leading-4 text-faint">${NA_MLF}.</span></div></div>` +
+    `</div>`;
 }
 
 function getBaseRows() {
@@ -205,25 +244,59 @@ function sortRows(rows, col, dir) {
 }
 
 function renderStats() {
-  const rows = getBaseRows();
-  const showRetired = document.getElementById('showRetired').checked;
-  const filtered = showRetired ? rows : rows.filter(r => r.STATUS !== 'Retired');
+  // The strip covers LIVE DUIDs in the chosen region; the retired toggle only changes the tables.
+  const scopeRows = getBaseRows();
+  const rows = scopeRows.filter(r => r.STATUS !== 'Retired');
+  const regionVal = activeRegion !== 'ALL' ? activeRegion : document.getElementById('regionFilter').value;
+  const scope = regionVal ? REGIONS[regionVal] : 'all regions';
+  const latest = fyCols[fyCols.length - 1];
+  const prior = fyCols[fyCols.length - 2];
 
+  // Average and deepest loss for the latest financial year (simple mean, not MW-weighted).
+  const pub = rows.map(r => ({ r, v: parseFloat(r[latest]) })).filter(x => !isNaN(x.v));
+  const avg = pub.length ? pub.reduce((a, x) => a + x.v, 0) / pub.length : NaN;
+  const deepest = pub.length ? pub.reduce((m, x) => x.v < m.v ? x : m) : null;
+
+  // Year-on-year, from the pipeline's own YOY_CHANGE column (latest published MLF less the one before).
+  const yoy = rows.map(r => parseFloat(r.YOY_CHANGE)).filter(v => !isNaN(v));
+  const down = yoy.filter(v => v < 0).length, up = yoy.filter(v => v > 0).length, flat = yoy.length - down - up;
+
+  const tile = (value, label, scopeText, title) =>
+    `<div${title ? ` title="${title}"` : ''}><div class="kpi-value">${value}</div><div class="kpi-label">${label}</div><div class="mt-0.5 text-[12px] leading-4 text-faint">${scopeText}</div></div>`;
+  const pct = v => ((1 - v) * 100).toFixed(1) + '%';
+  const tiles = [
+    tile(rows.length, 'DUIDs live', `of ${scopeRows.length} in the file for ${scope} · ${scopeRows.length - rows.length} retired`),
+    tile(isNaN(avg) ? 'N/A' : avg.toFixed(4), `Average MLF, ${latest}`,
+         isNaN(avg) ? 'no MLF published for this scope' : `${pct(avg)} of price lost · simple mean of ${pub.length} live DUIDs`),
+    tile(deepest ? deepest.v.toFixed(4) : 'N/A', `Deepest loss, ${latest}`,
+         deepest ? `${deepest.r.DUID} · ${deepest.r.STATION_NAME || 'station not stated'} · ${pct(deepest.v)} lost` : 'no MLF published for this scope',
+         deepest ? `${deepest.r.DUID} — ${deepest.r.STATION_NAME || ''}` : ''),
+    tile(yoy.length ? down : 'N/A', `Worse than ${prior}`,
+         yoy.length ? `of ${yoy.length} DUIDs with both years · ${up} better · ${flat} unchanged` : 'no year-on-year change in this scope'),
+  ].join('');
+
+  // Fuel breakdown. A blank FUEL_CATEGORY is counted as "Not stated" here and is never a filter option.
   const fuelOrder = ['Solar', 'Wind', 'Battery', 'Hydro', 'Fossil', 'Other Renewable'];
   const counts = {};
-  filtered.forEach(r => {
-    const fuel = r.FUEL_CATEGORY || 'Unknown';
-    counts[fuel] = (counts[fuel] || 0) + 1;
-  });
+  rows.forEach(r => { const f = r.FUEL_CATEGORY || ''; counts[f] = (counts[f] || 0) + 1; });
+  const named = Object.keys(counts).filter(f => f && counts[f] > 0);
+  const order = [...fuelOrder.filter(f => counts[f] > 0), ...named.filter(f => !fuelOrder.includes(f)).sort()];
+  const badges = order.map(f =>
+    `<span class="badge">${f} <span class="num text-ink">${counts[f]}</span></span>`).join('');
+  const unstated = counts[''] ? `<span class="badge border-dashed" title="These DUIDs have no fuel category in the source data">Fuel not stated <span class="num text-ink">${counts['']}</span></span>` : '';
 
-  const displayFuels = fuelOrder.filter(f => counts[f] > 0);
-  Object.keys(counts).forEach(f => {
-    if (!fuelOrder.includes(f) && counts[f] > 0) displayFuels.push(f);
-  });
+  document.getElementById('stats').innerHTML =
+    `<div class="grid grid-cols-2 gap-x-6 gap-y-5 lg:grid-cols-4">${tiles}</div>` +
+    `<div class="mt-5 flex flex-wrap items-center gap-2"><span class="eyebrow mr-1">Live DUIDs by fuel</span>${badges}${unstated}</div>`;
 
-  document.getElementById('stats').innerHTML = displayFuels.map(fuel =>
-    `<div class="stat-card"><div class="stat-label">${fuel}</div><div class="stat-value">${counts[fuel]}</div></div>`
-  ).join('');
+  const noRegion = rows.filter(r => !r.REGIONID).length;
+  const notes = [
+    `Tiles cover live DUIDs in ${scope}; the retired toggle changes the tables only.`,
+    counts[''] ? `${counts['']} live DUIDs have no fuel category in the source data: counted as "not stated", not offered as a filter.` : '',
+    noRegion ? `${noRegion} live DUIDs have no region: they sit under All and on no region tab.` : '',
+    'AEMO publishes MLFs once a year: final in April, draft/indicative in October.',
+  ].filter(Boolean);
+  document.getElementById('statsFoot').innerHTML = notes.map(n => `<span>${n}</span>`).join('<span class="hidden sm:inline" aria-hidden="true">·</span>');
 }
 
 function renderTabs() {
@@ -231,7 +304,8 @@ function renderTabs() {
   container.innerHTML = '';
 
   const allBtn = document.createElement('button');
-  allBtn.className = 'tab' + (activeRegion === 'ALL' ? ' active' : '');
+  allBtn.className = 'seg-item' + (activeRegion === 'ALL' ? ' seg-item-active' : '');
+  allBtn.setAttribute('aria-pressed', activeRegion === 'ALL');
   allBtn.textContent = 'All';
   allBtn.onclick = () => {
     activeRegion = 'ALL';
@@ -242,7 +316,8 @@ function renderTabs() {
 
   for (const [id, name] of Object.entries(REGIONS)) {
     const btn = document.createElement('button');
-    btn.className = 'tab' + (id === activeRegion ? ' active' : '');
+    btn.className = 'seg-item' + (id === activeRegion ? ' seg-item-active' : '');
+    btn.setAttribute('aria-pressed', id === activeRegion);
     btn.textContent = name;
     btn.onclick = () => {
       activeRegion = id;
@@ -272,71 +347,108 @@ function toggleSelect(duid) {
   }
 }
 
+function emptyReason(noun) {
+  const parts = [];
+  if (activeRegion !== 'ALL') parts.push(`region ${REGIONS[activeRegion]}`);
+  else if (document.getElementById('regionFilter').value) parts.push(`region ${REGIONS[document.getElementById('regionFilter').value]}`);
+  const type = document.getElementById('typeFilter').value, fuel = document.getElementById('fuelFilter').value;
+  const search = document.getElementById('search').value.trim();
+  if (type) parts.push(`type ${type}`);
+  if (fuel) parts.push(`fuel ${fuel}`);
+  if (search) parts.push(`search “${search}”`);
+  let msg = parts.length ? `No ${noun} match ${parts.join(', ')}.` : `No ${noun} in the file.`;
+  if (fuel === 'Battery' && noun === 'generators') msg += ' Batteries are in their own table.';
+  else if (fuel && fuel !== 'Battery' && noun === 'batteries') msg += ' Batteries have fuel category Battery only.';
+  if (!document.getElementById('showRetired').checked) msg += ' Retired DUIDs are hidden; turn on “Show retired DUIDs” to include them.';
+  return msg;
+}
+
 function renderOneTable(opts) {
-  const { rows: unsortedRows, theadId, tbodyId, tableId, wrapId, sectionId, titleId,
-          titleText, sortKey, fyColumns, extraCols, extraLabels } = opts;
+  const { rows: unsortedRows, theadId, tbodyId, sectionId, titleId, titleText, noun, sortKey,
+          fyColumns, extraCols, extraLabels } = opts;
 
   const section = document.getElementById(sectionId);
   const thead = document.getElementById(theadId);
   const tbody = document.getElementById(tbodyId);
+  const wrap = section.querySelector('.table-wrap');
+  const state = section.querySelector('.state');
+  const showRetired = document.getElementById('showRetired').checked;
 
-  if (unsortedRows.length === 0) {
-    section.style.display = 'none';
-    return;
-  }
   section.style.display = '';
   document.getElementById(titleId).textContent = `${titleText} (${unsortedRows.length})`;
+  const nRet = unsortedRows.filter(r => r.STATUS === 'Retired').length;
+  document.getElementById(sectionId.replace('Section', 'Foot')).innerHTML = [
+    'Source: AEMO DUDETAILSUMMARY via MMSDM Archive',
+    'MLFs are published annually: final in April, draft/indicative in October',
+    `${unsortedRows.length} ${noun} shown (${showRetired ? `live and retired, ${nRet} retired` : 'live only'}), after the filters above`,
+    `N/A = ${NA_MLF.charAt(0).toLowerCase() + NA_MLF.slice(1)}; in the change columns, no change in the file`,
+    ...(draftCols.length ? ['Draft columns are indicative, not yet final'] : []),
+    ...(sortKey === 'batt' ? ['YoY is coloured for the price received only; Import YoY carries its sign without a colour'] : []),
+  ].map(t => `<span>${t}</span>`).join('<span class="hidden sm:inline" aria-hidden="true">·</span>');
+
+  // An empty result is stated, and no stale rows or header stay behind in the hidden table.
+  if (unsortedRows.length === 0) {
+    thead.innerHTML = '';
+    tbody.innerHTML = '';
+    wrap.style.display = 'none';
+    state.style.display = '';
+    state.querySelector('.state-title').textContent = `No ${noun} match these filters`;
+    state.querySelector('.state-body').textContent = emptyReason(noun);
+    updateSelectionUI();
+    return;
+  }
+  wrap.style.display = '';
+  state.style.display = 'none';
 
   const ss = sortState[sortKey];
   const rows = sortRows(unsortedRows, ss.col, ss.dir);
-
   const showRegionCol = activeRegion === 'ALL';
-  const metaCols = showRegionCol
-    ? ['DUID', 'DUID_TYPE', 'STATION_NAME', 'REGIONID', 'FUEL_CATEGORY', 'CAPACITY_MW']
-    : ['DUID', 'DUID_TYPE', 'STATION_NAME', 'FUEL_CATEGORY', 'CAPACITY_MW'];
-  const metaLabels = showRegionCol
-    ? ['DUID', 'Type', 'Station', 'Region', 'Fuel', 'MW']
-    : ['DUID', 'Type', 'Station', 'Fuel', 'MW'];
 
-  const allCols = [...metaCols, ...fyColumns, ...extraCols];
-  const allLabels = [...metaLabels, ...fyColumns, ...extraLabels];
+  const meta = [
+    { col: 'DUID', label: 'DUID', cls: 'p1' },
+    { col: 'DUID_TYPE', label: 'Type' },
+    { col: 'STATION_NAME', label: 'Station' },
+    ...(showRegionCol ? [{ col: 'REGIONID', label: 'Region' }] : []),
+    { col: 'FUEL_CATEGORY', label: 'Fuel' },
+    { col: 'CAPACITY_MW', label: 'MW', cls: 'r' },
+  ];
+  // Import columns arrive under two naming conventions: the page's own FY labels ("FY26-27 Import")
+  // and the CSV's settlement keys ("IMPORT_YOY_CHANGE"). Both are load-side factors. Missing the
+  // second is how the import YoY column ended up coloured with the generator convention.
+  const isImp = c => c.startsWith('IMPORT') || (c.startsWith('FY') && c.includes('Import'));
+  const isDft = c => c.includes('Draft');
+  const isChange = c => c.includes('YOY');
 
+  const sortAttrs = col => `data-col="${esc(col)}" data-sort-key="${sortKey}" tabindex="0" aria-sort="${col === ss.col ? (ss.dir === 'asc' ? 'ascending' : 'descending') : 'none'}"`;
   const allChecked = rows.length > 0 && rows.every(r => selected.has(r.DUID));
 
-  thead.innerHTML = '<tr><th><input type="checkbox" class="cb" data-selectall="' + sortKey + '" ' +
-    (allChecked ? 'checked' : '') + '></th>' +
-    allLabels.map((l, i) => {
-      const col = allCols[i];
-      const sortCls = col === ss.col ? (ss.dir === 'asc' ? 'sorted-asc' : 'sorted-desc') : '';
-      const isDraft = col.includes('Draft');
-      const isImport = col.includes('Import') && col.startsWith('FY');
-      const headerCls = isDraft ? ' draft-header' : isImport ? ' import-header' : '';
-      return `<th class="${sortCls}${headerCls}" data-col="${col}" data-sort-key="${sortKey}">${l}</th>`;
-    }).join('') + '</tr>';
+  const row1 = `<th class="p0" rowspan="2"><label class="cbl"><input type="checkbox" class="cb" data-selectall="${sortKey}" aria-label="Select all shown ${noun}" ${allChecked ? 'checked' : ''}><span class="cbx"></span></label></th>` +
+    meta.map(m => `<th class="${m.cls || ''}" rowspan="2" ${sortAttrs(m.col)}>${m.label}</th>`).join('') +
+    (fyColumns.length ? `<th class="gh fam-mlf" colspan="${fyColumns.length}">MLF by financial year (1.0000 = no loss)</th>` : '') +
+    (extraCols.length ? `<th class="gh fam-chg" colspan="${extraCols.length}">Change on the previous year</th>` : '');
+  const row2 = fyColumns.map(c => `<th class="ch fam-mlf r${isImp(c) ? ' imp' : ''}${isDft(c) ? ' dft' : ''}" ${sortAttrs(c)}>${esc(c)}</th>`).join('') +
+    extraCols.map((c, i) => `<th class="ch fam-chg r${isImp(c) ? ' imp' : ''}" ${sortAttrs(c)}>${esc(extraLabels[i])}</th>`).join('');
+  thead.innerHTML = `<tr>${row1}</tr><tr>${row2}</tr>`;
 
-  // Select-all handler
   thead.querySelector('[data-selectall]').onchange = () => {
     const allSel = unsortedRows.every(r => selected.has(r.DUID));
-    if (allSel) {
-      unsortedRows.forEach(r => selected.delete(r.DUID));
-    } else {
-      unsortedRows.forEach(r => selected.add(r.DUID));
-    }
+    unsortedRows.forEach(r => allSel ? selected.delete(r.DUID) : selected.add(r.DUID));
     updateSelectionUI();
     renderTables();
   };
 
-  // Sort handlers
   thead.querySelectorAll('th[data-col]').forEach(th => {
-    th.onclick = () => {
-      const col = th.dataset.col;
-      const key = th.dataset.sortKey;
-      const s = sortState[key];
-      if (s.col === col) { s.dir = s.dir === 'asc' ? 'desc' : 'asc'; }
-      else { s.col = col; s.dir = 'asc'; }
+    const sort = () => {
+      const col = th.dataset.col, s = sortState[th.dataset.sortKey];
+      if (s.col === col) s.dir = s.dir === 'asc' ? 'desc' : 'asc'; else { s.col = col; s.dir = 'asc'; }
       renderTables();
     };
+    th.onclick = sort;
+    th.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sort(); } };
   });
+
+  const stated = (v, why) => v ? esc(v) : `<span class="na" title="${why}">Not stated</span>`;
+  const sign = v => v > 0 ? '+' : v < 0 ? '−' : '';
 
   tbody.innerHTML = rows.map(row => {
     const duid = row.DUID || '';
@@ -344,67 +456,46 @@ function renderOneTable(opts) {
     const isRetired = row.STATUS === 'Retired';
     const cells = [];
 
-    cells.push(`<td><input type="checkbox" class="cb" ${isSelected ? 'checked' : ''} data-duid="${duid}"></td>`);
-
-    const retiredBadge = isRetired ? ' <span class="badge-retired">retired</span>' : '';
-    cells.push(`<td>${duid}${retiredBadge}</td>`);
+    cells.push(`<td class="p0"><label class="cbl"><input type="checkbox" class="cb" ${isSelected ? 'checked' : ''} data-duid="${esc(duid)}" aria-label="Select ${esc(duid)}"><span class="cbx"></span></label></td>`);
+    cells.push(`<td class="p1 font-medium">${esc(duid)}${isRetired ? ' <span class="badge ml-1.5">retired</span>' : ''}</td>`);
 
     const typeVal = row.DUID_TYPE || 'Unknown';
-    const typeCls = typeVal === 'Generator' ? 'type-generator'
-      : typeVal === 'Network Load' ? 'type-network'
-      : typeVal === 'Interconnector' ? 'type-interconnector'
-      : typeVal === 'Scheduled Load' ? 'type-scheduled'
-      : typeVal === 'Market Customer' ? 'type-customer'
-      : 'type-unknown';
-    cells.push(`<td><span class="type-badge ${typeCls}">${typeVal}</span></td>`);
-
-    cells.push(`<td>${row.STATION_NAME || ''}</td>`);
-    if (showRegionCol) {
-      cells.push(`<td>${REGIONS[row.REGIONID] || row.REGIONID || ''}</td>`);
-    }
-    cells.push(`<td>${row.FUEL_CATEGORY || ''}</td>`);
-
+    cells.push(`<td>${typeVal === 'Generator' ? 'Generator' : `<span class="badge">${esc(typeVal)}</span>`}</td>`);
+    cells.push(`<td class="st" title="${esc(row.STATION_NAME)}">${stated(row.STATION_NAME, 'No station name in the file')}</td>`);
+    if (showRegionCol) cells.push(`<td>${stated(REGIONS[row.REGIONID] || row.REGIONID, 'No region in the file')}</td>`);
+    cells.push(`<td>${stated(row.FUEL_CATEGORY, 'No fuel category in the file')}</td>`);
     const cap = parseFloat(row.CAPACITY_MW);
-    cells.push(`<td>${isNaN(cap) ? '' : cap.toFixed(0)}</td>`);
+    cells.push(isNaN(cap) ? `<td class="r na" title="No capacity in the file">N/A</td>` : `<td class="r num">${cap.toFixed(0)}</td>`);
 
-    // FY cells with heatmap
     fyColumns.forEach(fy => {
       const val = parseFloat(row[fy]);
-      const isDraft = fy.includes('Draft');
-      if (isNaN(val)) {
-        cells.push(`<td class="mlf-cell${isDraft ? ' draft-cell' : ''}">-</td>`);
-      } else {
-        const bg = mlfColor(val);
-        const fg = textColor(val);
-        cells.push(`<td class="mlf-cell${isDraft ? ' draft-cell' : ''}" style="background:${bg};color:${fg}">${val.toFixed(4)}</td>`);
-      }
+      const imp = isImp(fy);
+      const tag = (imp ? ' imp' : '') + (isDft(fy) ? ' dft' : '');
+      // An import MLF multiplies the price a LOAD pays, so a low one is cheaper charging, not a bigger
+      // loss. It keeps its number and the dashed marking but stays OFF the loss ramp: filled from the
+      // ramp, the cheapest charge prices became the strongest cells on the page.
+      cells.push(isNaN(val)
+        ? `<td class="mlf-cell h r num seq-none na${tag}" title="${NA_MLF}">N/A</td>`
+        : imp
+          ? `<td class="mlf-cell h r num${tag}" title="${NA_IMP}">${val.toFixed(4)}</td>`
+          : `<td class="mlf-cell h r num seq-${mlfStep(val)}${tag}">${val.toFixed(4)}</td>`);
     });
 
-    // Extra cols (YoY)
     extraCols.forEach(col => {
       const val = parseFloat(row[col]);
-      const isPct = col.includes('PCT');
-      if (isNaN(val)) {
-        cells.push(`<td class="change-neutral">-</td>`);
-      } else {
-        const cls = changeClass(val);
-        const formatted = isPct
-          ? (val > 0 ? '+' : '') + val.toFixed(2) + '%'
-          : (val > 0 ? '+' : '') + val.toFixed(4);
-        cells.push(`<td class="${cls}">${formatted}</td>`);
-      }
+      const imp = isImp(col);
+      if (isNaN(val)) { cells.push(`<td class="r na${imp ? ' imp' : ''}" title="${NA_YOY}">N/A</td>`); return; }
+      const txt = col.includes('PCT') ? sign(val) + Math.abs(val).toFixed(2) + '%' : sign(val) + Math.abs(val).toFixed(4);
+      const tone = imp ? '' : val > 0 ? ' pos' : val < 0 ? ' neg' : '';
+      cells.push(`<td class="r num${tone}${imp ? ' imp' : ''}">${txt}</td>`);
     });
 
     const rowClass = [isSelected ? 'selected' : '', isRetired ? 'status-retired' : ''].filter(Boolean).join(' ');
-    return `<tr data-duid="${duid}" class="${rowClass}">${cells.join('')}</tr>`;
+    return `<tr data-duid="${esc(duid)}" class="${rowClass}">${cells.join('')}</tr>`;
   }).join('');
 
-  // Checkbox click handlers
   tbody.querySelectorAll('.cb').forEach(cb => {
-    cb.onchange = (e) => {
-      e.stopPropagation();
-      toggleSelect(cb.dataset.duid);
-    };
+    cb.onchange = (e) => { e.stopPropagation(); toggleSelect(cb.dataset.duid); };
   });
 
   updateSelectionUI();
@@ -431,9 +522,8 @@ function renderTables() {
 
   renderOneTable({
     rows: genRows,
-    theadId: 'genThead', tbodyId: 'genTbody', tableId: 'genTable',
-    wrapId: 'genTableWrap', sectionId: 'genSection', titleId: 'genTitle',
-    titleText: 'Generators', sortKey: 'gen',
+    theadId: 'genThead', tbodyId: 'genTbody', sectionId: 'genSection', titleId: 'genTitle',
+    titleText: 'Generators', noun: 'generators', sortKey: 'gen',
     fyColumns: genFyCols,
     extraCols: ['YOY_CHANGE', 'YOY_PCT_CHANGE'],
     extraLabels: ['YoY', 'YoY %']
@@ -441,14 +531,16 @@ function renderTables() {
 
   renderOneTable({
     rows: battRows,
-    theadId: 'battThead', tbodyId: 'battTbody', tableId: 'battTable',
-    wrapId: 'battTableWrap', sectionId: 'battSection', titleId: 'battTitle',
-    titleText: 'Battery Storage', sortKey: 'batt',
+    theadId: 'battThead', tbodyId: 'battTbody', sectionId: 'battSection', titleId: 'battTitle',
+    titleText: 'Battery Storage', noun: 'batteries', sortKey: 'batt',
     fyColumns: battFyCols,
     extraCols: ['YOY_CHANGE', 'YOY_PCT_CHANGE', 'IMPORT_YOY_CHANGE', 'IMPORT_YOY_PCT_CHANGE'],
     extraLabels: ['YoY', 'YoY %', 'Import YoY', 'Import YoY %']
   });
 
+  const denom = getBaseRows().filter(r => document.getElementById('showRetired').checked || r.STATUS !== 'Retired').length;
+  const shown = allFiltered.length;
+  document.getElementById('rowCount').textContent = shown === denom ? `${shown} DUIDs shown` : `${shown} of ${denom} DUIDs shown`;
   document.getElementById('loading').style.display = 'none';
 }
 
@@ -493,11 +585,11 @@ function exportSelectedToExcel() {
 
 function renderDownloads() {
   const container = document.getElementById('downloads');
-  container.innerHTML = '<strong style="width:100%;margin-bottom:4px">Download Excel:&nbsp;</strong>' +
+  container.innerHTML = '<span class="mr-1 text-[12px] font-medium text-muted">Download Excel:</span>' +
     Object.entries(REGIONS).map(([id, name]) =>
-      `<a class="dl-btn" href="outputs/${EXCEL_FILES[id]}" download>${name}</a>`
+      `<a class="btn" href="outputs/${EXCEL_FILES[id]}" download>${name}</a>`
     ).join('') +
-    `<a class="dl-btn" href="outputs/summary.csv" download>CSV (All)</a>`;
+    `<a class="btn" href="outputs/summary.csv" download>CSV (All)</a>`;
 }
 
 function populateFilters() {
@@ -537,12 +629,39 @@ document.getElementById('clearSelection').onclick = () => {
   renderTables();
 };
 
-Papa.parse('outputs/summary.csv', {
+// A missing, empty or blocked data file is a stated state (naming the file), not a blank page.
+function showLoadProblem(title, body) {
+  document.getElementById('loading').removeAttribute('aria-busy');
+  document.getElementById('loading').innerHTML =
+    `<div class="card-body pt-4"><div class="state"><svg class="state-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 4.75v3.9M8 10.9v.1" stroke-linecap="round"/></svg>` +
+    `<div><div class="state-title">${title}</div><div class="state-body">${body}</div></div></div></div>`;
+  renderDownloads();
+}
+
+// Theme: dark default, a toggle remembered per viewer; ?theme=light|dark forces one and is not stored.
+function syncThemeToggle() {
+  const light = document.documentElement.getAttribute('data-theme') === 'light';
+  const btn = document.getElementById('themeToggle');
+  btn.textContent = light ? 'Dark mode' : 'Light mode';
+  btn.setAttribute('aria-pressed', light);
+}
+document.getElementById('themeToggle').onclick = () => {
+  const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  try { localStorage.setItem('theme', next); } catch (e) {}
+  syncThemeToggle();
+};
+syncThemeToggle();
+
+if (typeof Papa === 'undefined') {
+  showLoadProblem('Could not load the CSV reader', 'The PapaParse script from cdn.jsdelivr.net did not load, so outputs/summary.csv cannot be read. Check the connection and reload.');
+} else Papa.parse('outputs/summary.csv', {
   download: true,
   header: true,
   skipEmptyLines: true,
   complete: function(results) {
     allData = results.data;
+    if (!allData.length) { showLoadProblem('outputs/summary.csv is empty', 'The file loaded but holds no rows, so there is nothing to show. The data update may have failed; check the file in the repository.'); return; }
     const allFyKeys = Object.keys(allData[0] || {}).filter(k => k.startsWith('FY')).sort();
     fyCols = allFyKeys.filter(k => !k.includes('Draft') && !k.includes('Import'));
     importCols = allFyKeys.filter(k => k.includes('Import'));
@@ -554,17 +673,25 @@ Papa.parse('outputs/summary.csv', {
       sortState.batt.col = latestFy;
     }
 
+    const types = {};
+    allData.forEach(r => { const t = r.DUID_TYPE || 'Unknown'; types[t] = (types[t] || 0) + 1; });
+    const nLive = allData.filter(r => r.STATUS !== 'Retired').length;
     document.getElementById('footer').textContent =
-      `${allData.length} generators tracked \u00B7 FY${fyCols[0]?.slice(2) || '?'} to FY${fyCols[fyCols.length-1]?.slice(2) || '?'} \u00B7 Source: AEMO DUDETAILSUMMARY via MMSDM Archive`;
+      `${allData.length} DUIDs tracked (${Object.entries(types).sort((a, b) => b[1] - a[1]).map(([t, n]) => `${n} ${t}`).join(', ')}) · ${nLive} live, ${allData.length - nLive} retired · ` +
+      `${fyCols[0] || '?'} to ${fyCols[fyCols.length - 1] || '?'} · Source: AEMO DUDETAILSUMMARY via MMSDM Archive`;
 
+    document.getElementById('genLegend').innerHTML = heatLegend(false);
+    document.getElementById('battLegend').innerHTML = heatLegend(true);   // only the battery table has import columns
     populateFilters();
     renderTabs();
     renderStats();
     renderTables();
     renderDownloads();
+    document.getElementById('statsSection').style.display = '';
+    document.getElementById('controls').style.display = '';
   },
   error: function() {
-    document.getElementById('loading').textContent = 'Failed to load data. Check that outputs/summary.csv exists.';
+    showLoadProblem('Could not load outputs/summary.csv', 'The page reads this file from the folder it is served from, and the request failed or the file is missing. The regional workbooks and the CSV under Download may be unavailable too.');
   }
 });
 </script>
