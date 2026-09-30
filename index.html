@@ -57,13 +57,14 @@
 <main class="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6">
 
 <header class="mb-5">
-  <div class="eyebrow">National Electricity Market</div>
+  <div class="eyebrow">National Electricity Market · marginal loss factors</div>
   <h1 class="mt-1 text-[22px] font-semibold leading-7">AEMO MLF Tracker</h1>
-  <p class="card-sub max-w-[72ch]">Marginal Loss Factors for NEM generator assets by financial year — tracking trends and degradation</p>
+  <p class="card-sub max-w-[72ch]">How much of the regional price does each asset lose on the way in, and is it getting worse? A marginal loss factor (MLF) is the share of the regional price a DUID receives: 1.0000 means no loss, 0.9000 means 10% lost.</p>
 </header>
 
 <section class="card mb-4">
-  <div class="card-body grid grid-cols-2 gap-x-6 gap-y-5 pt-4 sm:grid-cols-3 lg:grid-cols-5" id="stats"></div>
+  <div class="card-body pt-4" id="stats"></div>
+  <div class="card-foot" id="statsFoot"></div>
 </section>
 
 <div class="card mb-4 flex flex-wrap items-center gap-2 p-2" id="controls">
@@ -184,25 +185,59 @@ function sortRows(rows, col, dir) {
 }
 
 function renderStats() {
-  const rows = getBaseRows();
-  const showRetired = document.getElementById('showRetired').checked;
-  const filtered = showRetired ? rows : rows.filter(r => r.STATUS !== 'Retired');
+  // The strip covers LIVE DUIDs in the chosen region; the retired toggle only changes the tables.
+  const scopeRows = getBaseRows();
+  const rows = scopeRows.filter(r => r.STATUS !== 'Retired');
+  const regionVal = activeRegion !== 'ALL' ? activeRegion : document.getElementById('regionFilter').value;
+  const scope = regionVal ? REGIONS[regionVal] : 'all regions';
+  const latest = fyCols[fyCols.length - 1];
+  const prior = fyCols[fyCols.length - 2];
 
+  // Average and deepest loss for the latest financial year (simple mean, not MW-weighted).
+  const pub = rows.map(r => ({ r, v: parseFloat(r[latest]) })).filter(x => !isNaN(x.v));
+  const avg = pub.length ? pub.reduce((a, x) => a + x.v, 0) / pub.length : NaN;
+  const deepest = pub.length ? pub.reduce((m, x) => x.v < m.v ? x : m) : null;
+
+  // Year-on-year, from the pipeline's own YOY_CHANGE column (latest published MLF less the one before).
+  const yoy = rows.map(r => parseFloat(r.YOY_CHANGE)).filter(v => !isNaN(v));
+  const down = yoy.filter(v => v < 0).length, up = yoy.filter(v => v > 0).length, flat = yoy.length - down - up;
+
+  const tile = (value, label, scopeText, title) =>
+    `<div${title ? ` title="${title}"` : ''}><div class="kpi-value">${value}</div><div class="kpi-label">${label}</div><div class="mt-0.5 text-[12px] leading-4 text-faint">${scopeText}</div></div>`;
+  const pct = v => ((1 - v) * 100).toFixed(1) + '%';
+  const tiles = [
+    tile(rows.length, 'DUIDs live', `of ${scopeRows.length} in the file for ${scope} · ${scopeRows.length - rows.length} retired`),
+    tile(isNaN(avg) ? 'N/A' : avg.toFixed(4), `Average MLF, ${latest}`,
+         isNaN(avg) ? 'no MLF published for this scope' : `${pct(avg)} of price lost · simple mean of ${pub.length} live DUIDs`),
+    tile(deepest ? deepest.v.toFixed(4) : 'N/A', `Deepest loss, ${latest}`,
+         deepest ? `${deepest.r.DUID} · ${deepest.r.STATION_NAME || 'station not stated'} · ${pct(deepest.v)} lost` : 'no MLF published for this scope',
+         deepest ? `${deepest.r.DUID} — ${deepest.r.STATION_NAME || ''}` : ''),
+    tile(yoy.length ? down : 'N/A', `Worse than ${prior}`,
+         yoy.length ? `of ${yoy.length} DUIDs with both years · ${up} better · ${flat} unchanged` : 'no year-on-year change in this scope'),
+  ].join('');
+
+  // Fuel breakdown. A blank FUEL_CATEGORY is counted as "Not stated" here and is never a filter option.
   const fuelOrder = ['Solar', 'Wind', 'Battery', 'Hydro', 'Fossil', 'Other Renewable'];
   const counts = {};
-  filtered.forEach(r => {
-    const fuel = r.FUEL_CATEGORY || 'Unknown';
-    counts[fuel] = (counts[fuel] || 0) + 1;
-  });
+  rows.forEach(r => { const f = r.FUEL_CATEGORY || ''; counts[f] = (counts[f] || 0) + 1; });
+  const named = Object.keys(counts).filter(f => f && counts[f] > 0);
+  const order = [...fuelOrder.filter(f => counts[f] > 0), ...named.filter(f => !fuelOrder.includes(f)).sort()];
+  const badges = order.map(f =>
+    `<span class="badge">${f} <span class="num text-ink">${counts[f]}</span></span>`).join('');
+  const unstated = counts[''] ? `<span class="badge border-dashed" title="These DUIDs have no fuel category in the source data">Fuel not stated <span class="num text-ink">${counts['']}</span></span>` : '';
 
-  const displayFuels = fuelOrder.filter(f => counts[f] > 0);
-  Object.keys(counts).forEach(f => {
-    if (!fuelOrder.includes(f) && counts[f] > 0) displayFuels.push(f);
-  });
+  document.getElementById('stats').innerHTML =
+    `<div class="grid grid-cols-2 gap-x-6 gap-y-5 lg:grid-cols-4">${tiles}</div>` +
+    `<div class="mt-5 flex flex-wrap items-center gap-2"><span class="eyebrow mr-1">Live DUIDs by fuel</span>${badges}${unstated}</div>`;
 
-  document.getElementById('stats').innerHTML = displayFuels.map(fuel =>
-    `<div><div class="kpi-value">${counts[fuel]}</div><div class="kpi-label">${fuel}</div></div>`
-  ).join('');
+  const noRegion = rows.filter(r => !r.REGIONID).length;
+  const notes = [
+    `Tiles cover live DUIDs in ${scope}; the retired toggle changes the tables only.`,
+    counts[''] ? `${counts['']} live DUIDs have no fuel category in the source data: counted as "not stated", not offered as a filter.` : '',
+    noRegion ? `${noRegion} live DUIDs have no region: they sit under All and on no region tab.` : '',
+    'AEMO publishes MLFs once a year: final in April, draft/indicative in October.',
+  ].filter(Boolean);
+  document.getElementById('statsFoot').innerHTML = notes.map(n => `<span>${n}</span>`).join('<span class="hidden sm:inline" aria-hidden="true">·</span>');
 }
 
 function renderTabs() {
@@ -535,8 +570,12 @@ Papa.parse('outputs/summary.csv', {
       sortState.batt.col = latestFy;
     }
 
+    const types = {};
+    allData.forEach(r => { const t = r.DUID_TYPE || 'Unknown'; types[t] = (types[t] || 0) + 1; });
+    const nLive = allData.filter(r => r.STATUS !== 'Retired').length;
     document.getElementById('footer').textContent =
-      `${allData.length} generators tracked \u00B7 FY${fyCols[0]?.slice(2) || '?'} to FY${fyCols[fyCols.length-1]?.slice(2) || '?'} \u00B7 Source: AEMO DUDETAILSUMMARY via MMSDM Archive`;
+      `${allData.length} DUIDs tracked (${Object.entries(types).sort((a, b) => b[1] - a[1]).map(([t, n]) => `${n} ${t}`).join(', ')}) · ${nLive} live, ${allData.length - nLive} retired · ` +
+      `${fyCols[0] || '?'} to ${fyCols[fyCols.length - 1] || '?'} · Source: AEMO DUDETAILSUMMARY via MMSDM Archive`;
 
     populateFilters();
     renderTabs();
