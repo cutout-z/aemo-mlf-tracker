@@ -31,6 +31,24 @@
   .fam-chg { --fam: var(--neutral); }
 
   .table-wrap { overflow: auto; max-height: 75vh; }
+  /* The served shell reserves the layout the app fills, block by block, at every width. The skeleton copy
+     inside `#loading` is given the height each block reaches once filled. The desktop rungs alone were not
+     enough: at 390 px the page still grew 1,086 px (28 %), because a desktop-only reservation reads as
+     "reserved" in a gate that only measured 1440. Loaded block heights, measured: 1440 / 900 / 600 / 390. */
+  .shell-kpi  { min-height: 229px; }   /* 229 · 375 · 563 */
+  .shell-bar  { min-height: 64px; }    /*  64 · 104 · 188 · 268 */
+  .shell-gen  { min-height: 908px; }   /* 908 · 988 · 1180 */
+  .shell-batt { min-height: 1008px; }  /* 1008 · 1104 · 1386 */
+  .shell-dl   { min-height: 107px; }   /* 107 · 123 · 195 */
+  @media (max-width: 900px) {
+    .shell-kpi { min-height: 375px; } .shell-bar { min-height: 104px; }
+    .shell-gen { min-height: 988px; } .shell-batt { min-height: 1104px; } .shell-dl { min-height: 123px; }
+  }
+  @media (max-width: 600px) { .shell-bar { min-height: 188px; } }
+  @media (max-width: 420px) {
+    .shell-kpi { min-height: 563px; } .shell-bar { min-height: 268px; }
+    .shell-gen { min-height: 1180px; } .shell-batt { min-height: 1386px; } .shell-dl { min-height: 195px; }
+  }
   .dt { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; line-height: 20px; }
 
   .dt thead th { position: sticky; z-index: 3; height: 32px; padding: 0 12px; background: var(--surface); color: var(--muted); font-size: 12px; font-weight: 500; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line); }
@@ -132,7 +150,7 @@
      `#loading` stays the single element the app removes, and keeps its busy state for assistive tech. -->
 <div id="loading" aria-busy="true">
   <span class="sr-only">Loading data</span>
-  <section class="card mb-4" aria-hidden="true">
+  <section class="card mb-4 shell-kpi" aria-hidden="true">
     <div class="card-body pt-4">
       <div class="grid grid-cols-2 gap-x-6 gap-y-5 lg:grid-cols-4">
         <div class="skeleton h-[104px] w-full"></div>
@@ -149,7 +167,7 @@
     </div>
     <div class="card-foot"><div class="skeleton h-4 w-[62%]"></div></div>
   </section>
-  <div class="z-30 -mt-1 mb-4 bg-bg pb-2 pt-1">
+  <div class="z-30 -mt-1 mb-4 bg-bg pb-2 pt-1 shell-bar">
     <div class="card flex flex-wrap items-center gap-2 p-2" aria-hidden="true">
       <div class="skeleton h-8 w-[210px]"></div>
       <div class="skeleton h-8 w-28"></div>
@@ -159,7 +177,7 @@
       <div class="skeleton h-8 w-36"></div>
     </div>
   </div>
-  <section class="card mb-4" aria-hidden="true">
+  <section class="card mb-4 shell-gen" aria-hidden="true">
     <div class="card-body space-y-3 pt-5">
       <div class="skeleton h-5 w-40"></div>
       <div class="skeleton h-4 w-2/3"></div>
@@ -184,7 +202,7 @@
     </div>
     <div class="card-foot"><div class="skeleton h-4 w-1/3"></div></div>
   </section>
-  <section class="card mb-4" aria-hidden="true">
+  <section class="card mb-4 shell-batt" aria-hidden="true">
     <div class="card-body space-y-3 pt-5">
       <div class="skeleton h-5 w-40"></div>
       <div class="skeleton h-4 w-2/3"></div>
@@ -208,12 +226,6 @@
       <div class="skeleton h-8 w-full"></div>
     </div>
     <div class="card-foot"><div class="skeleton h-4 w-1/3"></div></div>
-  </section>
-  <section class="card mt-4" aria-hidden="true">
-    <div class="card-body flex flex-wrap items-center gap-2">
-      <div class="skeleton h-8 w-44"></div>
-      <div class="skeleton h-8 w-44"></div>
-    </div>
   </section>
 </div>
 
@@ -243,7 +255,7 @@
   <div class="card-foot" id="battFoot"></div>
 </section>
 
-<section class="card mt-4">
+<section class="card mt-4 shell-dl">
   <div class="card-body flex flex-wrap items-center gap-2" id="downloads"></div>
   <div class="card-foot" id="footer">Source: AEMO DUDETAILSUMMARY via MMSDM Archive</div>
 </section>

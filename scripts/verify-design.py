@@ -216,22 +216,37 @@ def main() -> int:
               f"{len(yoy)} signed cells, e.g. {yoy[:3]}")
 
         print("open items")
-        # 1. The served shell must reserve the layout the app is about to fill. This page used to grow
-        #    ~1,600 px the moment the CSV landed (~412 px of content -> 2,516 px), shoving everything
-        #    below the skeleton down the screen. Read with JS off: that is literally what the browser
-        #    paints first, so the comparison is deterministic rather than a race.
-        shell_ctx = br.new_context(viewport={"width": 1440, "height": 900}, java_script_enabled=False)
-        shell = shell_ctx.new_page()
-        shell.goto(URL, wait_until="load", timeout=60000)
-        shell.wait_for_timeout(600)
-        bars = shell.eval_on_selector_all(".skeleton", "e => e.length")
-        shell_h = shell.evaluate("document.documentElement.scrollHeight")
-        loaded_h = pg.evaluate("document.documentElement.scrollHeight")
-        check(bars >= 15, "the served shell renders a skeleton, not a blank page", f"{bars} skeleton bars")
-        check(abs(loaded_h - shell_h) <= 0.2 * max(loaded_h, 1),
-              "the shell reserves the page height, so loading does not jump the layout",
-              f"shell {shell_h} px vs loaded {loaded_h} px ({(loaded_h - shell_h) / max(loaded_h, 1):.0%})")
-        shell_ctx.close()
+        # 1. The served shell must reserve the layout the app is about to fill, at EVERY width. This page used
+        #    to grow ~1,600 px the moment the CSV landed, shoving everything below the skeleton down the
+        #    screen. Read with JS off: that is literally what the browser paints first, so the comparison is
+        #    deterministic rather than a race.
+        #    Measuring only 1440 is how a desktop-only reservation passed as "reserved" while the phone page
+        #    still grew 1,086 px (28 %) — so the widths below are not decoration. Keep the phone rung.
+        shell_shapes = {}
+        for w in (1440, 900, 600, 390):
+            shell_ctx = br.new_context(viewport={"width": w, "height": 900}, java_script_enabled=False)
+            shell = shell_ctx.new_page()
+            shell.goto(URL, wait_until="load", timeout=60000)
+            shell.wait_for_timeout(600)
+            shell_shapes[w] = {
+                "bars": shell.eval_on_selector_all(".skeleton", "e => e.length"),
+                "h": shell.evaluate("document.documentElement.scrollHeight"),
+            }
+            shell_ctx.close()
+            live_ctx = br.new_context(viewport={"width": w, "height": 900})
+            live = live_ctx.new_page()
+            live.goto(URL, wait_until="networkidle", timeout=60000)
+            live.wait_for_timeout(1500)
+            shell_shapes[w]["loaded"] = live.evaluate("document.documentElement.scrollHeight")
+            live_ctx.close()
+        check(min(s["bars"] for s in shell_shapes.values()) >= 15,
+              "the served shell renders a skeleton, not a blank page",
+              f"{ {w: s['bars'] for w, s in shell_shapes.items()} }")
+        for w, s in shell_shapes.items():
+            gap = abs(s["loaded"] - s["h"])
+            check(gap <= 0.2 * max(s["loaded"], 1),
+                  f"the shell reserves the page height at {w}px, so loading does not jump the layout",
+                  f"shell {s['h']} px vs loaded {s['loaded']} px ({gap / max(s['loaded'], 1):.0%})")
 
         # 2. Sticky chrome must stay ONE row. A wrapped control bar pinned over the table it is meant to
         #    help you read costs 104 px of a 900 px viewport. Below lg stacking is allowed — it is not
