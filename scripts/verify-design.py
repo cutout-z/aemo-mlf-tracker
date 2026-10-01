@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import pathlib
 import re
 import sys
@@ -213,6 +214,141 @@ def main() -> int:
             "e => e.filter(x => /^[+\\u2212-]\\d/.test(x.innerText.trim())).map(x => x.innerText.trim())")
         check(bool(yoy), "year-on-year changes keep an explicit sign (colour is not the only signal)",
               f"{len(yoy)} signed cells, e.g. {yoy[:3]}")
+
+        print("open items")
+        # 1. The served shell must reserve the layout the app is about to fill. This page used to grow
+        #    ~1,600 px the moment the CSV landed (~412 px of content -> 2,516 px), shoving everything
+        #    below the skeleton down the screen. Read with JS off: that is literally what the browser
+        #    paints first, so the comparison is deterministic rather than a race.
+        shell_ctx = br.new_context(viewport={"width": 1440, "height": 900}, java_script_enabled=False)
+        shell = shell_ctx.new_page()
+        shell.goto(URL, wait_until="load", timeout=60000)
+        shell.wait_for_timeout(600)
+        bars = shell.eval_on_selector_all(".skeleton", "e => e.length")
+        shell_h = shell.evaluate("document.documentElement.scrollHeight")
+        loaded_h = pg.evaluate("document.documentElement.scrollHeight")
+        check(bars >= 15, "the served shell renders a skeleton, not a blank page", f"{bars} skeleton bars")
+        check(abs(loaded_h - shell_h) <= 0.2 * max(loaded_h, 1),
+              "the shell reserves the page height, so loading does not jump the layout",
+              f"shell {shell_h} px vs loaded {loaded_h} px ({(loaded_h - shell_h) / max(loaded_h, 1):.0%})")
+        shell_ctx.close()
+
+        # 2. Sticky chrome must stay ONE row. A wrapped control bar pinned over the table it is meant to
+        #    help you read costs 104 px of a 900 px viewport. Below lg stacking is allowed — it is not
+        #    sticky there, so it scrolls away. Both halves of that rule are checked.
+        bar = {}
+        for w in (1440, 1280, 1100, 900, 768, 390):
+            pg.set_viewport_size({"width": w, "height": 900})
+            pg.wait_for_timeout(400)
+            bar[w] = pg.evaluate("""(() => { const el = document.getElementById('controls');
+                if (!el) return null; const r = el.getBoundingClientRect();
+                return {h: Math.round(r.height), pos: getComputedStyle(el).position}; })()""")
+        tall = {w: b for w, b in bar.items() if b and b["pos"] == "sticky" and b["h"] > 72}
+        check(not tall, "the sticky control bar is never more than one row", f"{tall}")
+        one_row = {w: bar[w]["h"] for w in (1440, 1280, 1100) if bar[w]}
+        check(len(one_row) == 3 and all(h <= 72 for h in one_row.values()),
+              "the control bar stays one row down to 1100 (it scrolls, it does not wrap)", f"{one_row}")
+        check(all(b["pos"] != "sticky" or b["h"] <= 72 for b in bar.values() if b),
+              "wherever it is sticky it is one row", f"{ {w: b and (b['pos'], b['h']) for w, b in bar.items()} }")
+        pg.set_viewport_size({"width": 1440, "height": 900})
+        pg.wait_for_timeout(300)
+
+        # 3. A year column empty for every asset on screen is dropped from the table and NAMED in that
+        #    card's foot (the battery card was a wall of ten N/A columns). Expected from the CSV, so a
+        #    data change cannot quietly hide a column that only looks empty — and expected per table,
+        #    because the generator table draws no Import columns at all.
+        #
+        #    Scope: the retired toggle counts (retired batteries do have early-year MLFs, so turning it on
+        #    must bring those columns back), and the region/type/fuel filters must NOT reshape the table.
+        #    Both halves are checked below.
+        def blanks_for(pred, keep, live_only):
+            rows = [r for r in csv_rows if (r["STATUS"] != "Retired" or not live_only) and pred(r)]
+            cols = sorted({c for r in rows for c in r if c.startswith("FY") and keep(c)})
+            return [c for c in cols if all(not (r.get(c) or "").strip() for r in rows)]
+        def live_batt(r):
+            return r["FUEL_CATEGORY"] == "Battery"
+        blank_gen = blanks_for(lambda r: r["FUEL_CATEGORY"] != "Battery", lambda c: "Import" not in c, True)
+        blank_batt = blanks_for(live_batt, lambda c: True, True)
+        drawn = {k: pg.eval_on_selector_all(f"#{k}Thead tr:last-child th", "e => e.map(x => x.innerText.trim())")
+                 for k in ("gen", "batt")}
+        feet = {k: pg.eval_on_selector(f"#{k}Foot", "e => e.innerText").strip() for k in ("gen", "batt")}
+        for key, blanks, noun in (("gen", blank_gen, "generator"), ("batt", blank_batt, "battery")):
+            still = [c for c in blanks if c in drawn[key]]
+            check(not still, f"the {key} table draws no year column that is empty for every {noun}",
+                  f"still drawn: {still[:6]}")
+            check(not blanks or all(c in feet[key] for c in blanks),
+                  f"the {key} card names what it hid in its own foot", feet[key][:160] or "(foot empty)")
+        check(bool(blank_gen) or bool(blank_batt),
+              "the empty-column rule is exercised by today's file (else this check proves nothing)",
+              f"generators {blank_gen} · batteries {len(blank_batt)}")
+
+        #    The scope rule has two halves. Retired ON must bring back the columns only retired assets
+        #    fill (their early-year MLFs are real data); a region filter must NOT reshape the table.
+        blank_batt_all = blanks_for(live_batt, lambda c: True, False)
+        pg.evaluate("document.getElementById('showRetired').click()")
+        pg.wait_for_timeout(1000)
+        drawn_retd = pg.eval_on_selector_all("#battThead tr:last-child th", "e => e.map(x => x.innerText.trim())")
+        check(len(drawn_retd) > len(drawn["batt"]),
+              "turning on retired DUIDs brings back the columns only retired batteries fill",
+              f"{len(drawn['batt'])} -> {len(drawn_retd)} columns; still hidden {blank_batt_all}")
+        check(all(c not in drawn_retd for c in blank_batt_all),
+              "and no column blank for every asset in the file is drawn",
+              f"still drawn: {[c for c in blank_batt_all if c in drawn_retd]}")
+        pg.evaluate("""(() => { for (const b of document.querySelectorAll('#tabs button'))
+            if (b.innerText.trim() === 'NSW') b.click(); })()""")
+        pg.wait_for_timeout(1000)
+        drawn_nsw = pg.eval_on_selector_all("#battThead tr:last-child th", "e => e.map(x => x.innerText.trim())")
+        check(drawn_nsw == drawn_retd, "a region filter does not reshape the column set",
+              f"{len(drawn_nsw)} vs {len(drawn_retd)} columns")
+        pg.evaluate("document.getElementById('showRetired').click()")
+        pg.evaluate("""(() => { for (const b of document.querySelectorAll('#tabs button'))
+            if (b.innerText.trim() === 'All') b.click(); })()""")
+        pg.wait_for_timeout(900)
+
+        # 4. The Draft column path had never been rendered: today's CSV has no Draft key, so nothing
+        #    proved the marker works. Serve a fixture that adds one and read the result off the page.
+        raw = list(csv.reader(CSV.open()))
+        head, pick = raw[0] + ["FY27-28 Draft"], {}
+        for row in raw[1:]:
+            d = dict(zip(raw[0], row))
+            if not d.get("DUID"):
+                continue
+            key = "batt" if d.get("FUEL_CATEGORY") == "Battery" else "gen"
+            pick.setdefault(key, row)
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(head)
+        for row in pick.values():
+            w.writerow(row + ["0.9750"])
+        draft = br.new_page(viewport={"width": 1440, "height": 900})
+        draft.route("**/outputs/summary.csv*",
+                    lambda route: route.fulfill(status=200, content_type="text/csv", body=buf.getvalue()))
+        draft.goto(URL, wait_until="networkidle", timeout=60000)
+        draft.wait_for_timeout(1800)
+        dh = draft.eval_on_selector_all(
+            "#genThead th.dft, #battThead th.dft",
+            "e => e.map(x => ({t: x.innerText.trim(), bl: getComputedStyle(x).borderLeftStyle,"
+            " blc: getComputedStyle(x).borderLeftColor}))")
+        db = draft.eval_on_selector_all(
+            "#genTbody td.dft, #battTbody td.dft",
+            "e => e.map(x => ({t: x.innerText.trim(), bl: getComputedStyle(x).borderLeftStyle}))")
+        check(len(dh) >= 2 and all("Draft" in d["t"] for d in dh),
+              "a Draft column renders a marked header in both tables", f"{[d['t'] for d in dh]}")
+        check(bool(dh) and all(d["bl"] == "dashed" and rgb(d["blc"]) == rgb(dark["warn"]) for d in dh),
+              "the Draft header carries the warn marking", f"{dh[:1]} vs --warn {dark.get('warn')}")
+        check(bool(db) and all(d["t"] == "0.9750" for d in db),
+              "the Draft column's cells render their value", f"{[d['t'] for d in db][:3]}")
+        check(bool(db) and all(d["bl"] == "dashed" for d in db),
+              "the Draft cells carry the warn marking too", f"{[d['bl'] for d in db][:3]}")
+        dlegend = " ".join(draft.eval_on_selector_all("[data-heat-legend]", "e => e.map(x => x.innerText)"))
+        dtxt = draft.evaluate("document.body.innerText")
+        says = re.search(r"[^.]*[Dd]raft[^.]*\.", dtxt)
+        check(re.search(r"draft[^.]*indicative|indicative[^.]*draft", dtxt, re.I) is not None,
+              "the page states that a Draft column is indicative, not final",
+              says.group(0)[:160] if says else "(no Draft sentence found)")
+        check("Draft" not in dlegend, "the ramp legend keeps to the MLF tokens (Draft is stated in the foot)",
+              dlegend[:80])
+        draft.close()
 
         print("themes and phone")
         flip = pg.evaluate("""(() => { const r = document.documentElement;
