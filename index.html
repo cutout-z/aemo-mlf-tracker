@@ -103,18 +103,21 @@
   <div class="card-foot" id="statsFoot"></div>
 </section>
 
-<div class="z-30 -mt-1 mb-4 bg-bg pb-2 pt-1 sm:sticky sm:top-0" id="controls" style="display:none">
-  <div class="card flex flex-wrap items-center gap-2 p-2">
-    <div class="seg" id="tabs" role="group" aria-label="Region"></div>
-    <select id="regionFilter" class="input w-auto" aria-label="Region"><option value="">All Regions</option></select>
-    <select id="typeFilter" class="input w-auto" aria-label="Type"><option value="">All Types</option></select>
-    <select id="fuelFilter" class="input w-auto" aria-label="Fuel type"><option value="">All Fuel Types</option></select>
+<!-- Sticky only while it fits ONE row. A wrapped control bar pins 104 px of chrome over the table it is
+     meant to help you read, so from lg up the row stays single and its tail scrolls sideways instead of
+     wrapping; below lg it stacks and scrolls away with the page. -->
+<div class="z-30 -mt-1 mb-4 bg-bg pb-2 pt-1 lg:sticky lg:top-0" id="controls" style="display:none">
+    <div class="card flex flex-wrap items-center gap-2 p-2 lg:flex-nowrap lg:overflow-x-auto">
+    <div class="seg shrink-0" id="tabs" role="group" aria-label="Region"></div>
+    <select id="regionFilter" class="input w-auto shrink-0" aria-label="Region"><option value="">All Regions</option></select>
+    <select id="typeFilter" class="input w-auto shrink-0" aria-label="Type"><option value="">All Types</option></select>
+    <select id="fuelFilter" class="input w-auto shrink-0" aria-label="Fuel type"><option value="">All Fuel Types</option></select>
     <input type="text" id="search" class="input w-full min-w-[12rem] sm:w-auto sm:flex-1" placeholder="Search DUID or station..." aria-label="Search DUID or station">
-    <label class="flex h-8 cursor-pointer items-center gap-2 whitespace-nowrap px-1 text-[12px] text-muted">
+    <label class="flex h-8 shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap px-1 text-[12px] text-muted">
       <span class="switch"><input type="checkbox" id="showRetired" role="switch"></span>
       Show retired DUIDs
     </label>
-    <div class="flex flex-wrap items-center gap-2 sm:ml-auto" id="actions">
+    <div class="flex flex-wrap items-center gap-2 sm:ml-auto lg:shrink-0 lg:flex-nowrap" id="actions">
       <span class="badge" id="rowCount" aria-live="polite"></span>
       <span class="badge empty:hidden" id="selCount" aria-live="polite"></span>
       <button class="btn btn-ghost" id="clearSelection" style="display:none">Clear Selection</button>
@@ -123,17 +126,96 @@
   </div>
 </div>
 
-<section class="card mb-4" id="loading" aria-busy="true">
-  <div class="card-body space-y-3 pt-5" id="loadingBody">
-    <span class="sr-only">Loading data</span>
-    <div class="skeleton h-5 w-40"></div>
-    <div class="skeleton h-8 w-full"></div>
-    <div class="skeleton h-8 w-full"></div>
-    <div class="skeleton h-8 w-full"></div>
-    <div class="skeleton h-8 w-full"></div>
-    <div class="skeleton h-8 w-full"></div>
+<!-- The served shell reserves the layout the app is about to fill — the KPI strip, the control bar, two
+     table cards and the downloads card, in order and at roughly their final heights. Without it the page
+     grew ~1,600 px the moment the CSV landed and everything below the skeleton jumped down the screen.
+     `#loading` stays the single element the app removes, and keeps its busy state for assistive tech. -->
+<div id="loading" aria-busy="true">
+  <span class="sr-only">Loading data</span>
+  <section class="card mb-4" aria-hidden="true">
+    <div class="card-body pt-4">
+      <div class="grid grid-cols-2 gap-x-6 gap-y-5 lg:grid-cols-4">
+        <div class="skeleton h-[104px] w-full"></div>
+        <div class="skeleton h-[104px] w-full"></div>
+        <div class="skeleton h-[104px] w-full"></div>
+        <div class="skeleton h-[104px] w-full"></div>
+      </div>
+      <div class="mt-5 flex flex-wrap items-center gap-2">
+        <div class="skeleton h-5 w-40"></div>
+        <div class="skeleton h-6 w-32"></div>
+        <div class="skeleton h-6 w-24"></div>
+        <div class="skeleton h-6 w-24"></div>
+      </div>
+    </div>
+    <div class="card-foot"><div class="skeleton h-4 w-[62%]"></div></div>
+  </section>
+  <div class="z-30 -mt-1 mb-4 bg-bg pb-2 pt-1">
+    <div class="card flex flex-wrap items-center gap-2 p-2" aria-hidden="true">
+      <div class="skeleton h-8 w-[210px]"></div>
+      <div class="skeleton h-8 w-28"></div>
+      <div class="skeleton h-8 w-28"></div>
+      <div class="skeleton h-8 w-28"></div>
+      <div class="skeleton h-8 min-w-[12rem] flex-1"></div>
+      <div class="skeleton h-8 w-36"></div>
+    </div>
   </div>
-</section>
+  <section class="card mb-4" aria-hidden="true">
+    <div class="card-body space-y-3 pt-5">
+      <div class="skeleton h-5 w-40"></div>
+      <div class="skeleton h-4 w-2/3"></div>
+    </div>
+    <div class="px-5 pb-3 pt-3"><div class="skeleton h-5 w-3/4"></div></div>
+    <div class="space-y-3 border-t border-line-soft p-5">
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+    </div>
+    <div class="card-foot"><div class="skeleton h-4 w-1/3"></div></div>
+  </section>
+  <section class="card mb-4" aria-hidden="true">
+    <div class="card-body space-y-3 pt-5">
+      <div class="skeleton h-5 w-40"></div>
+      <div class="skeleton h-4 w-2/3"></div>
+    </div>
+    <div class="px-5 pb-3 pt-3"><div class="skeleton h-5 w-3/4"></div></div>
+    <div class="space-y-3 border-t border-line-soft p-5">
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+      <div class="skeleton h-8 w-full"></div>
+    </div>
+    <div class="card-foot"><div class="skeleton h-4 w-1/3"></div></div>
+  </section>
+  <section class="card mt-4" aria-hidden="true">
+    <div class="card-body flex flex-wrap items-center gap-2">
+      <div class="skeleton h-8 w-44"></div>
+      <div class="skeleton h-8 w-44"></div>
+    </div>
+  </section>
+</div>
 
 <section id="genSection" class="card mb-4 overflow-hidden" style="display:none">
   <div class="card-head">
@@ -365,7 +447,7 @@ function emptyReason(noun) {
 
 function renderOneTable(opts) {
   const { rows: unsortedRows, theadId, tbodyId, sectionId, titleId, titleText, noun, sortKey,
-          fyColumns, extraCols, extraLabels } = opts;
+          fyColumns, extraCols, extraLabels, hiddenCols = [] } = opts;
 
   const section = document.getElementById(sectionId);
   const thead = document.getElementById(theadId);
@@ -383,6 +465,7 @@ function renderOneTable(opts) {
     `${unsortedRows.length} ${noun} shown (${showRetired ? `live and retired, ${nRet} retired` : 'live only'}), after the filters above`,
     `N/A = ${NA_MLF.charAt(0).toLowerCase() + NA_MLF.slice(1)}; in the change columns, no change in the file`,
     ...(draftCols.length ? ['Draft columns are indicative, not yet final'] : []),
+    ...(hiddenCols.length ? [hiddenColumnsNote(hiddenCols, noun, showRetired)] : []),
     ...(sortKey === 'batt' ? ['YoY is coloured for the price received only; Import YoY carries its sign without a colour'] : []),
   ].map(t => `<span>${t}</span>`).join('<span class="hidden sm:inline" aria-hidden="true">·</span>');
 
@@ -501,6 +584,17 @@ function renderOneTable(opts) {
   updateSelectionUI();
 }
 
+// A year column that carries no published value for any asset on screen is noise — the battery card was
+// showing ten of them as a wall of N/A. Such columns are dropped from that table and NAMED in its foot,
+// so nothing disappears silently.
+//
+// Scope, deliberately: the retired toggle is part of the test (turning it on legitimately brings columns
+// back — retired batteries do have early-year MLFs), while the region/type/fuel filters are NOT, so the
+// column set never reshapes when you compare one region with another.
+const blankColumns = (rows, cols) => cols.filter(c => rows.every(r => isNaN(parseFloat(r[c]))));
+const hiddenColumnsNote = (cols, noun, showRetired) =>
+  `${cols.length} year ${cols.length === 1 ? 'column is' : 'columns are'} empty for every ${noun} ${showRetired ? 'in the file' : 'now live'}: ${cols.map(esc).join(', ')} — hidden here, kept in the CSV and the Excel export`;
+
 function renderTables() {
   const allFiltered = getFiltered();
   const genRows = allFiltered.filter(r => r.FUEL_CATEGORY !== 'Battery');
@@ -520,11 +614,20 @@ function renderTables() {
   });
   draftCols.forEach(dc => battFyCols.push(dc));
 
+  // The retired toggle is part of the emptiness test; the region/type/fuel filters are not (see the
+  // comment on blankColumns).
+  const hiddenScope = allData.filter(r => document.getElementById('showRetired').checked || r.STATUS !== 'Retired');
+  const genHidden = blankColumns(hiddenScope.filter(r => r.FUEL_CATEGORY !== 'Battery'), genFyCols);
+  const battHidden = blankColumns(hiddenScope.filter(r => r.FUEL_CATEGORY === 'Battery'), battFyCols);
+  const genShown = genFyCols.filter(c => !genHidden.includes(c));
+  const battShown = battFyCols.filter(c => !battHidden.includes(c));
+
   renderOneTable({
     rows: genRows,
     theadId: 'genThead', tbodyId: 'genTbody', sectionId: 'genSection', titleId: 'genTitle',
     titleText: 'Generators', noun: 'generators', sortKey: 'gen',
-    fyColumns: genFyCols,
+    fyColumns: genShown,
+    hiddenCols: genHidden,
     extraCols: ['YOY_CHANGE', 'YOY_PCT_CHANGE'],
     extraLabels: ['YoY', 'YoY %']
   });
@@ -533,7 +636,8 @@ function renderTables() {
     rows: battRows,
     theadId: 'battThead', tbodyId: 'battTbody', sectionId: 'battSection', titleId: 'battTitle',
     titleText: 'Battery Storage', noun: 'batteries', sortKey: 'batt',
-    fyColumns: battFyCols,
+    fyColumns: battShown,
+    hiddenCols: battHidden,
     extraCols: ['YOY_CHANGE', 'YOY_PCT_CHANGE', 'IMPORT_YOY_CHANGE', 'IMPORT_YOY_PCT_CHANGE'],
     extraLabels: ['YoY', 'YoY %', 'Import YoY', 'Import YoY %']
   });
@@ -633,8 +737,8 @@ document.getElementById('clearSelection').onclick = () => {
 function showLoadProblem(title, body) {
   document.getElementById('loading').removeAttribute('aria-busy');
   document.getElementById('loading').innerHTML =
-    `<div class="card-body pt-4"><div class="state"><svg class="state-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 4.75v3.9M8 10.9v.1" stroke-linecap="round"/></svg>` +
-    `<div><div class="state-title">${title}</div><div class="state-body">${body}</div></div></div></div>`;
+    `<div class="card"><div class="card-body pt-4"><div class="state"><svg class="state-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 4.75v3.9M8 10.9v.1" stroke-linecap="round"/></svg>` +
+    `<div><div class="state-title">${title}</div><div class="state-body">${body}</div></div></div></div></div>`;
   renderDownloads();
 }
 
