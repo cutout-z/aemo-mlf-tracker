@@ -29,9 +29,9 @@ def _orient_mlfs(detail_df: pd.DataFrame) -> pd.DataFrame:
 def extract_fy_mlfs(detail_df: pd.DataFrame) -> pd.DataFrame:
     """Extract one MLF value per DUID per financial year.
 
-    Financial years run July 1 to June 30. We look for records where the
-    START_DATE falls within a FY period and take the MLF that was in effect
-    for the majority of that FY.
+    Financial years run July 1 to June 30. We look at every record that
+    overlaps a FY and take the MLF that was in effect for the most days of
+    that FY (ties go to the later-effective value).
 
     Returns: DataFrame with columns [DUID, REGIONID, CONNECTIONPOINTID,
              STATIONID, FY, MLF, IMPORT_MLF] — MLF is the export (generation) MLF
@@ -51,18 +51,23 @@ def extract_fy_mlfs(detail_df: pd.DataFrame) -> pd.DataFrame:
         if fy_data.empty:
             continue
 
-        # For each DUID, pick the record that covers the most of this FY
-        # (typically the one starting on July 1 of this FY)
+        # Days each record is in effect within this FY
+        fy_data["DAYS"] = (
+            fy_data["END_DATE"].clip(upper=fy_end) - fy_data["START_DATE"].clip(lower=fy_begin)
+        ).dt.days
+        fy_data["VALUE_KEY"] = fy_data["EXPORT_MLF"].astype(str) + "|" + fy_data["IMPORT_MLF"].astype(str)
+
+        # For each DUID, take the MLF in effect for the most days of this FY.
+        # AEMO splits a year into several records when any field changes, so days
+        # are summed per value. A mid-year starter whose first MLF is corrected
+        # within weeks (e.g. QPSFB1 FY25-26) gets the corrected value; ties go to
+        # the later-effective value.
         for duid, group in fy_data.groupby("DUID"):
-            # Prefer the record whose START_DATE is closest to (and <= ) fy_begin
-            # This is the MLF that was set for this FY
-            fy_start_records = group[group["START_DATE"] <= fy_begin]
-            if not fy_start_records.empty:
-                # Take the most recent start before or on July 1
-                best = fy_start_records.sort_values("START_DATE").iloc[-1]
-            else:
-                # Fallback: first record that starts during this FY
-                best = group.sort_values("START_DATE").iloc[0]
+            by_value = group.groupby("VALUE_KEY").agg(
+                DAYS=("DAYS", "sum"), LAST_START=("START_DATE", "max")
+            )
+            winner = by_value.sort_values(["DAYS", "LAST_START"]).index[-1]
+            best = group[group["VALUE_KEY"] == winner].sort_values("START_DATE").iloc[-1]
 
             import_mlf = best["IMPORT_MLF"]
             rows.append({

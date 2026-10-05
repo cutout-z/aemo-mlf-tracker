@@ -51,3 +51,37 @@ def test_battery_yoy_matches_final_workbook_orientation(fy_range):
     summary = build_summary(extract_fy_mlfs(detail_rows(*CAPBES1)), final_excel=final).set_index("DUID")
     assert summary.loc["CAPBES1", "YOY_CHANGE"] == pytest.approx(0.0009)
     assert summary.loc["CAPBES1", "IMPORT_YOY_CHANGE"] == pytest.approx(-0.0126)
+
+
+# --- Value in effect for most of the FY -----------------------------------------
+
+def test_mid_year_starter_takes_majority_value(fy_range):
+    # QPSFB1 FY25-26: 1.0190 for 14 days, corrected to 0.9176 for the remaining 148.
+    fy_range(2025, 2025)
+    fy = extract_fy_mlfs(detail_rows(
+        ("QPSFB1", "2026-01-20", "2026-02-03", 1.0190, 0.9176),
+        ("QPSFB1", "2026-02-03", "2026-07-01", 0.9176),
+    ))
+    assert _fy(fy, "QPSFB1", "FY25-26")["MLF"] == pytest.approx(0.9176)
+
+
+def test_days_are_summed_across_split_records(fy_range):
+    # 0.95 runs 1 Jul–30 Sep then 1 Mar–30 Jun (≈ 214 days) in two records;
+    # 0.97 runs 1 Oct–28 Feb (151 days) in one record: the longer total wins.
+    fy_range(2025, 2025)
+    fy = extract_fy_mlfs(detail_rows(
+        ("SPLIT1", "2025-07-01", "2025-10-01", 0.95),
+        ("SPLIT1", "2025-10-01", "2026-03-01", 0.97),
+        ("SPLIT1", "2026-03-01", "2026-07-01", 0.95),
+    ))
+    assert _fy(fy, "SPLIT1", "FY25-26")["MLF"] == pytest.approx(0.95)
+
+
+def test_tie_goes_to_later_value(fy_range):
+    # Two values in effect for 90 days each: the later-effective one wins.
+    fy_range(2025, 2025)
+    fy = extract_fy_mlfs(detail_rows(
+        ("TIE1", "2026-01-01", "2026-04-01", 0.98),
+        ("TIE1", "2026-04-01", "2026-06-30", 0.99),
+    ))
+    assert _fy(fy, "TIE1", "FY25-26")["MLF"] == pytest.approx(0.99)
