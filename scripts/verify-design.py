@@ -23,6 +23,7 @@ import pathlib
 import re
 import sys
 
+import openpyxl
 from playwright.sync_api import sync_playwright
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -334,8 +335,11 @@ def main() -> int:
 
         # 4. The Draft column path had never been rendered: today's CSV has no Draft key, so nothing
         #    proved the marker works. Serve a fixture that adds one and read the result off the page.
+        #    The column names are the pipeline's own (src/analyse.py: "FY27-28 (Draft)" and its
+        #    "… Import"), and a draft import is included: it matches both "Draft" and "Import", which
+        #    is how it once reached the generator table and the export twice.
         raw = list(csv.reader(CSV.open()))
-        head, pick = raw[0] + ["FY27-28 Draft"], {}
+        head, pick = raw[0] + ["FY27-28 (Draft)", "FY27-28 (Draft) Import"], {}
         for row in raw[1:]:
             d = dict(zip(raw[0], row))
             if not d.get("DUID"):
@@ -345,8 +349,8 @@ def main() -> int:
         buf = io.StringIO()
         w = csv.writer(buf)
         w.writerow(head)
-        for row in pick.values():
-            w.writerow(row + ["0.9750"])
+        for key, row in pick.items():
+            w.writerow(row + ["0.9750", "0.9900" if key == "batt" else ""])
         draft = br.new_page(viewport={"width": 1440, "height": 900})
         draft.route("**/outputs/summary.csv*",
                     lambda route: route.fulfill(status=200, content_type="text/csv", body=buf.getvalue()))
@@ -363,8 +367,27 @@ def main() -> int:
               "a Draft column renders a marked header in both tables", f"{[d['t'] for d in dh]}")
         check(bool(dh) and all(d["bl"] == "dashed" and rgb(d["blc"]) == rgb(dark["warn"]) for d in dh),
               "the Draft header carries the warn marking", f"{dh[:1]} vs --warn {dark.get('warn')}")
-        check(bool(db) and all(d["t"] == "0.9750" for d in db),
-              "the Draft column's cells render their value", f"{[d['t'] for d in db][:3]}")
+        check(sorted(d["t"] for d in db) == ["0.9750", "0.9750", "0.9900"],
+              "the Draft cells render their values (gen and battery draft, battery draft import)",
+              f"{[d['t'] for d in db]}")
+        gen_heads = draft.eval_on_selector_all("#genThead th[data-col]", "e => e.map(x => x.dataset.col)")
+        batt_heads = draft.eval_on_selector_all("#battThead th[data-col]", "e => e.map(x => x.dataset.col)")
+        check(not [h for h in gen_heads if "Import" in h],
+              "no import column reaches the generator table (draft import included)", f"{[h for h in gen_heads if 'Import' in h]}")
+        check(batt_heads.count("FY27-28 (Draft) Import") == 1
+              and batt_heads.index("FY27-28 (Draft) Import") == batt_heads.index("FY27-28 (Draft)") + 1,
+              "the battery table shows the draft import once, next to its draft", f"{batt_heads[-8:]}")
+        dimp = draft.eval_on_selector_all("#battTbody td.dft.imp", "e => e.map(x => x.className)")
+        check(len(dimp) == 1 and not re.search(r"\bseq-[0-7]\b", dimp[0]),
+              "the draft import cell stays off the loss ramp", f"{dimp}")
+        draft.evaluate("selected = new Set(allData.map(r => r.DUID)); updateSelectionUI();")
+        with draft.expect_download() as dl:
+            draft.click("#exportSelected")
+        xl = openpyxl.load_workbook(io.BytesIO(pathlib.Path(dl.value.path()).read_bytes()), read_only=True)
+        xl_heads = [c.value for c in next(xl.active.iter_rows(max_row=1))]
+        dup = sorted({h for h in xl_heads if xl_heads.count(h) > 1})
+        check(not dup and "FY27-28 (Draft) Import" in xl_heads,
+              "the selection export carries each column once, draft import included", f"duplicated: {dup}")
         check(bool(db) and all(d["bl"] == "dashed" for d in db),
               "the Draft cells carry the warn marking too", f"{[d['bl'] for d in db][:3]}")
         dlegend = " ".join(draft.eval_on_selector_all("[data-heat-legend]", "e => e.map(x => x.innerText)"))
