@@ -67,6 +67,7 @@ def run(full_refresh: bool = False):
                 cache_dir,
                 mmsdm_year=latest_year,
                 mmsdm_month=latest_month,
+                refresh=full_refresh,
             )
             gen_cache.parent.mkdir(parents=True, exist_ok=True)
             generators.to_feather(gen_cache)
