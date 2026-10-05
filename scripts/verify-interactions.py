@@ -15,6 +15,7 @@ from __future__ import annotations
 import csv
 import pathlib
 import sys
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from playwright.sync_api import sync_playwright
 
@@ -59,6 +60,94 @@ n_retired = len(rows) - n_visible
 print(f"csv: {len(rows)} DUIDs · {n_visible} live ({n_retired} retired) · "
       f"generators {len(live_gen)} · batteries {len(live_batt)} · latest {latest}")
 
+# ── The page's numbers, recomputed from the csv alone ──────────────────────────────────────────
+# Mirrors renderStats / renderTables / renderOneTable in index.html (retired hidden, no filters),
+# rounding half-up on the exact decimals in the file rather than on binary floats.
+REGIONS = {"NSW1": "NSW", "QLD1": "QLD", "VIC1": "VIC", "SA1": "SA", "TAS1": "TAS"}
+MLF_EDGES = [Decimal(e) for e in ("1.00", "0.98", "0.96", "0.94", "0.92", "0.90", "0.85")]
+FUEL_ORDER = ["Solar", "Wind", "Battery", "Hydro", "Fossil", "Other Renewable"]
+ALL_FY = sorted(k for k in rows[0] if k.startswith("FY"))
+FY_STD = [k for k in ALL_FY if "Draft" not in k and "Import" not in k]
+FY_IMP = [k for k in ALL_FY if "Import" in k]
+FY_DFT = [k for k in ALL_FY if "Draft" in k]
+HALF_UP = lambda d, q: d.quantize(Decimal(q), ROUND_HALF_UP)
+
+
+def num(v: str | None) -> Decimal | None:
+    try:
+        d = Decimal((v or "").strip())
+    except InvalidOperation:
+        return None
+    return d if d.is_finite() else None
+
+
+def signed(d: Decimal, q: str) -> str:
+    return ("+" if d > 0 else "−" if d < 0 else "") + str(HALF_UP(abs(d), q))
+
+
+def table_columns(battery: bool) -> list[str]:
+    cols = FY_STD + FY_DFT if not battery else \
+        [c for fy in FY_STD for c in (fy, fy + " Import") if c == fy or c in FY_IMP] + FY_DFT
+    scope = [r for r in live if (r["FUEL_CATEGORY"] == "Battery") == battery]
+    return [c for c in cols if any(num(r[c]) is not None for r in scope)]   # all-blank columns are dropped
+
+
+def expected_row(r: dict[str, str], fy_cols: list[str], extra: list[str], show_region: bool) -> list:
+    # Text cells: the page prints the csv's text (blank -> its stated fallback); innerText trims it.
+    text = lambda v, blank: v.strip() if v else blank
+    out = [r["DUID"], text(r["DUID_TYPE"], "Unknown"), text(r["STATION_NAME"], "Not stated")]
+    if show_region:
+        out.append(text(REGIONS.get(r["REGIONID"], r["REGIONID"]), "Not stated"))
+    out.append(text(r["FUEL_CATEGORY"], "Not stated"))
+    cap = num(r["CAPACITY_MW"])
+    out.append(str(HALF_UP(cap, "1")) if cap is not None else "N/A")
+    for c in fy_cols:
+        v = num(r[c])
+        if v is None:
+            out.append(["N/A", "seq-none"])
+        elif "Import" in c:
+            out.append([str(HALF_UP(v, "0.0001")), None])           # import MLFs stay off the loss ramp
+        else:
+            out.append([str(HALF_UP(v, "0.0001")), f"seq-{next((i for i, e in enumerate(MLF_EDGES) if v >= e), 7)}"])
+    for c in extra:
+        v = num(r[c])
+        out.append("N/A" if v is None else signed(v, "0.01") + "%" if "PCT" in c else signed(v, "0.0001"))
+    return out
+
+
+def expected_stats(code: str) -> tuple[list[list[str]], list[str]]:
+    scope_rows = rows if code == "ALL" else [r for r in rows if r["REGIONID"] == code]
+    lv = [r for r in scope_rows if r["STATUS"] != "Retired"]
+    where = "all regions" if code == "ALL" else REGIONS[code]
+    lost = lambda v: f"{HALF_UP((1 - v) * 100, '0.1')}% lost"
+    pub = [(r, v) for r in lv if (v := num(r[latest])) is not None]
+    if pub:
+        avg = sum(v for _, v in pub) / len(pub)
+        deep_r, deep_v = pub[0]
+        for r, v in pub[1:]:                     # first-wins on ties, as the page's reduce does
+            if v < deep_v:
+                deep_r, deep_v = r, v
+        t2 = [str(HALF_UP(avg, "0.0001")), f"Average MLF, {latest}",
+              f"{HALF_UP((1 - avg) * 100, '0.1')}% of price lost · simple mean of {len(pub)} live DUIDs"]
+        t3 = [str(HALF_UP(deep_v, "0.0001")), f"Deepest loss, {latest}",
+              f"{deep_r['DUID']} · {deep_r['STATION_NAME'] or 'station not stated'} · {lost(deep_v)}"]
+    else:
+        t2 = ["N/A", f"Average MLF, {latest}", "no MLF published for this scope"]
+        t3 = ["N/A", f"Deepest loss, {latest}", "no MLF published for this scope"]
+    yoy = [v for r in lv if (v := num(r["YOY_CHANGE"])) is not None]
+    down, up = sum(v < 0 for v in yoy), sum(v > 0 for v in yoy)
+    t4 = ([str(down), f"Worse than {FY_STD[-2]}",
+           f"of {len(yoy)} DUIDs with both years · {up} better · {len(yoy) - down - up} unchanged"] if yoy else
+          ["N/A", f"Worse than {FY_STD[-2]}", "no year-on-year change in this scope"])
+    t1 = [str(len(lv)), "DUIDs live", f"of {len(scope_rows)} in the file for {where} · {len(scope_rows) - len(lv)} retired"]
+    counts: dict[str, int] = {}
+    for r in lv:
+        counts[r["FUEL_CATEGORY"]] = counts.get(r["FUEL_CATEGORY"], 0) + 1
+    named = [f for f in counts if f]
+    order = [f for f in FUEL_ORDER if counts.get(f)] + sorted(f for f in named if f not in FUEL_ORDER)
+    badges = [f"{f} {counts[f]}" for f in order] + ([f"Fuel not stated {counts['']}"] if counts.get("") else [])
+    return [t1, t2, t3, t4], badges
+
 with sync_playwright() as pw:
     br = pw.chromium.launch()
     pg = br.new_page(viewport={"width": 1440, "height": 900})
@@ -83,12 +172,46 @@ with sync_playwright() as pw:
     check(gen_rows() == len(live_gen) and batt_rows() == len(live_batt),
           "the two tables split generators from batteries by fuel",
           f"generators {gen_rows()}/{len(live_gen)} · batteries {batt_rows()}/{len(live_batt)}")
-    stats = pg.inner_text("#stats")
-    check(str(n_solar) in stats and str(n_wind) in stats,
-          "the stat tiles quote the CSV fuel counts", " ".join(stats.split())[:100])
     check(gen_duids()[0] == top["DUID"],
           f"the default sort ({latest}, ascending) puts the deepest loss first",
           f"{gen_duids()[0]} vs {top['DUID']} ({top[latest]})")
+
+    print("values match the csv (every tab: the four tiles, the fuel badges, every cell of both tables)")
+    read_rows = """tb => [...document.querySelectorAll(tb + ' tr')].filter(x => x.offsetParent !== null).map(tr =>
+        [tr.dataset.duid, ...[...tr.children].slice(1).map(td => td.classList.contains('mlf-cell')
+            ? [td.innerText.trim(), (td.className.match(/\\bseq-(\\d|none)\\b/) || [null])[0]] : td.innerText.trim())])"""
+    for code, tab in [("ALL", "All")] + list(REGIONS.items()):
+        pg.evaluate("""(label) => { const b = [...document.querySelectorAll('#tabs button, #tabs .seg-item')]
+            .find(x => x.innerText.trim() === label); b.click(); }""", tab)
+        pg.wait_for_timeout(500)
+        want_tiles, want_badges = expected_stats(code)
+        tiles = pg.eval_on_selector_all("#stats .grid > div", "e => e.map(t => [...t.children].map(c => c.innerText.trim()))")
+        check(tiles == want_tiles, f"{tab}: the four tiles equal the figures recomputed from the csv",
+              f"page {tiles} vs csv {want_tiles}")
+        badges = pg.eval_on_selector_all("#stats .badge", "e => e.map(x => x.innerText.replace(/\\s+/g, ' ').trim())")
+        check(badges == want_badges, f"{tab}: the fuel badges count the csv's live DUIDs", f"{badges} vs {want_badges}")
+        for battery, tb, th, extra in [
+                (False, "#genTbody", "#genThead", ["YOY_CHANGE", "YOY_PCT_CHANGE"]),
+                (True, "#battTbody", "#battThead", ["YOY_CHANGE", "YOY_PCT_CHANGE", "IMPORT_YOY_CHANGE", "IMPORT_YOY_PCT_CHANGE"])]:
+            noun = "batteries" if battery else "generators"
+            fy_cols = table_columns(battery)
+            scope = [r for r in live if (r["FUEL_CATEGORY"] == "Battery") == battery and (code == "ALL" or r["REGIONID"] == code)]
+            want = {r["DUID"]: expected_row(r, fy_cols, extra, code == "ALL") for r in scope}
+            page = {r[0]: r[1:] for r in pg.evaluate(read_rows, tb)}
+            heads = pg.eval_on_selector_all(f"{th} th[data-col]", "e => e.map(x => x.dataset.col)")
+            meta = ["DUID", "DUID_TYPE", "STATION_NAME"] + (["REGIONID"] if code == "ALL" else []) + ["FUEL_CATEGORY", "CAPACITY_MW"]
+            check(not scope or heads == meta + fy_cols + extra, f"{tab}: the {noun} columns are the csv's non-empty years",
+                  f"{heads[len(meta):]} vs {fy_cols + extra}")
+            missing = [d for d in want if d not in page]
+            extra_rows = [d for d in page if d not in want]
+            bad = [(d, i, page[d][i] if i < len(page[d]) else None, w) for d in want if d in page
+                   for i, w in enumerate(want[d]) if i >= len(page[d]) or page[d][i] != w]
+            check(not missing and not extra_rows and not bad and len(page) == len(want),
+                  f"{tab}: every {noun} cell equals summary.csv ({len(want)} rows x {len(meta) + len(fy_cols) + len(extra)} columns)",
+                  f"missing {missing[:2]}, extra {extra_rows[:2]}, {len(bad)} wrong, e.g. {bad[:3]}")
+    pg.evaluate("""(() => { const b = [...document.querySelectorAll('#tabs button, #tabs .seg-item')]
+        .find(x => x.innerText.trim() === 'All'); b.click(); })()""")
+    pg.wait_for_timeout(500)
 
     print("tabs and the region filter")
     for code in ("NSW1", "VIC1", "TAS1"):

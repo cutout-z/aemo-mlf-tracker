@@ -145,7 +145,17 @@ def main() -> int:
             "#battTbody td.mlf-cell.imp",
             "e => e.map(x => ({cls: x.className, txt: x.innerText.trim(), bg: getComputedStyle(x).backgroundColor,"
                  " bl: getComputedStyle(x).borderLeftStyle}))")
-        check(len(ramped) >= 400, "the MLF cells render", f"{len(ramped)} ramped cells")
+        # Exact counts from the csv: live rows x the year columns each table shows (a column empty for
+        # every live row of that table is dropped and named in its foot, so it is not counted here).
+        def shown(battery: bool, imports: bool) -> int:
+            scope = [r for r in csv_rows if r["STATUS"] != "Retired" and (r["FUEL_CATEGORY"] == "Battery") == battery]
+            cols = [c for c in csv_rows[0] if c.startswith("FY") and ("Import" in c) == imports
+                    and (battery or not imports) and any(r[c].strip() for r in scope)]
+            return len(scope) * len(cols)
+        want_ramped = shown(False, False) + shown(True, False)
+        want_imported = shown(True, True)
+        check(len(ramped) == want_ramped, f"the MLF cells render ({want_ramped}: live rows x shown year columns)",
+              f"{len(ramped)} ramped cells")
         # `.seq-none` is the token file's own step for "no value"; a stated N/A is on the ramp system, not off it.
         on_ramp = r"\bseq-(\d|none)\b"
         seq = [c for c in ramped if re.search(on_ramp, c["cls"] or "")]
@@ -157,7 +167,9 @@ def main() -> int:
         # loss — 124 of the 159 published values here are below 1.00. On the shared ramp they read as the
         # deepest losses on the page, which is the one thing they are not. The number stays, the dashed
         # marking stays, the fill stays off.
-        check(len(imported) >= 100, "the battery table's import MLF cells render", f"{len(imported)} cells")
+        check(len(imported) == want_imported,
+              f"the battery table's import MLF cells render ({want_imported}: live batteries x shown import years)",
+              f"{len(imported)} cells")
         check(not [c for c in imported if re.search(r"\bseq-[0-7]\b", c["cls"] or "")],
               "import MLF cells are NOT on the loss ramp (lower = cheaper, not more lost)",
               f"{[c['txt'] for c in imported if re.search(r'seq-[0-7]', c['cls'] or '')][:3]}")
