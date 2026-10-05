@@ -274,3 +274,52 @@ def download_final_mlfs(cache_dir: str, full_refresh: bool = False) -> pd.DataFr
     # workbook is an error rather than a reason to show last year's MLFs.
     return _download_mlf_excel(url, xlsx_path, fy_label, "FINAL_MLF", required=True)
 
+
+
+def dudetail_covers_fy(detail_df: pd.DataFrame, fy_start: int) -> bool:
+    """True when DUDETAILSUMMARY already holds records effective within FY fy_start-(fy_start+1).
+
+    AEMO loads the new year's final MLFs into DUDETAILSUMMARY ahead of 1 July: the
+    2026-27 records (751 of them) first appear in the June 2026 MMSDM archive, which
+    nemweb publishes in early July. From then on the final workbook is a cross-check,
+    not the only source.
+    """
+    if detail_df is None or detail_df.empty or "START_DATE" not in detail_df.columns:
+        return False
+    begin = pd.Timestamp(year=fy_start, month=7, day=1)
+    end = pd.Timestamp(year=fy_start + 1, month=7, day=1)
+    starts = pd.to_datetime(detail_df["START_DATE"], errors="coerce")
+    return bool(((starts >= begin) & (starts < end)).any())
+
+
+def fetch_mlf_workbooks(cache_dir: str, detail_df: pd.DataFrame, full_refresh: bool = False):
+    """Fetch the final and draft MLF workbooks under the lane's failure policy.
+
+    - Final workbook: required while it is the ONLY source of the current FY's MLFs
+      (from its April publication until DUDETAILSUMMARY carries the year). A failed
+      fetch then stops the run rather than republishing last year's values. Once
+      DUDETAILSUMMARY covers the year, a failed fetch (AEMO's Cloudflare answers
+      scripted requests with 403 at times) is logged and the run continues on
+      DUDETAILSUMMARY alone.
+    - Draft workbook: indicative only, so a failed fetch is logged and the draft
+      column is left out; it never blocks the published final values.
+
+    Returns (final_excel, indicative); either may be None.
+    """
+    covered = dudetail_covers_fy(detail_df, config.FY_END)
+    try:
+        final_excel = download_final_mlfs(cache_dir, full_refresh=full_refresh)
+    except RuntimeError as e:
+        if not covered:
+            raise
+        logger.warning(
+            f"Final MLF workbook unavailable ({e}); DUDETAILSUMMARY already carries "
+            f"FY{config.FY_END}-{(config.FY_END + 1) % 100:02d}, continuing without it"
+        )
+        final_excel = None
+    try:
+        indicative = download_draft_mlfs(cache_dir)
+    except RuntimeError as e:
+        logger.warning(f"Draft MLF workbook unavailable ({e}); the draft column is left out of this run")
+        indicative = None
+    return final_excel, indicative

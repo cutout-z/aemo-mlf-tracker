@@ -150,3 +150,41 @@ def test_battery_section_keeps_export_and_import(tmp_path):
     ]})
     assert final.loc["CAPBES1", "FINAL_MLF"] == pytest.approx(0.9783)
     assert final.loc["CAPBES1", "FINAL_IMPORT_MLF"] == pytest.approx(1.0263)
+
+
+# --- Lane policy: the final workbook is required only while it is the sole source ----
+
+import pandas as pd  # noqa: E402
+
+
+def _detail(*starts):
+    return pd.DataFrame({"DUID": ["X"] * len(starts), "START_DATE": pd.to_datetime(list(starts))})
+
+
+def test_dudetail_covers_fy_only_with_records_inside_the_year():
+    assert indicative.dudetail_covers_fy(_detail("2026-07-01"), 2026)
+    assert not indicative.dudetail_covers_fy(_detail("2025-07-01", "2026-02-03"), 2026)
+    assert not indicative.dudetail_covers_fy(_detail("2027-07-01"), 2026)
+    assert not indicative.dudetail_covers_fy(pd.DataFrame(), 2026)
+
+
+def test_blocked_final_workbook_stops_the_run_while_it_is_the_only_source(fake_get, tmp_path):
+    fake_get(_Resp(403))
+    with pytest.raises(RuntimeError, match="HTTP 403"):
+        indicative.fetch_mlf_workbooks(str(tmp_path), _detail("2025-07-01"))
+
+
+def test_blocked_workbooks_are_tolerated_once_dudetail_carries_the_year(fake_get, tmp_path, caplog):
+    fake_get(_Resp(403))
+    with caplog.at_level("WARNING"):
+        final, draft = indicative.fetch_mlf_workbooks(str(tmp_path), _detail("2025-07-01", "2026-07-01"))
+    assert final is None and draft is None
+    assert "continuing without it" in caplog.text and "draft column is left out" in caplog.text
+
+
+def test_blocked_draft_never_blocks_a_good_final(fake_get, tmp_path, monkeypatch):
+    good = _Resp(200, _xlsx_bytes(tmp_path))
+    monkeypatch.setattr(indicative.requests, "get",
+                        lambda url, **kw: good if "draft" not in url else _Resp(403))
+    final, draft = indicative.fetch_mlf_workbooks(str(tmp_path), _detail("2025-07-01"))
+    assert final is not None and draft is None
