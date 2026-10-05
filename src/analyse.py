@@ -61,7 +61,10 @@ def extract_fy_mlfs(detail_df: pd.DataFrame) -> pd.DataFrame:
         fy_data["DAYS"] = (
             fy_data["END_DATE"].clip(upper=fy_end) - fy_data["START_DATE"].clip(lower=fy_begin)
         ).dt.days
-        fy_data["VALUE_KEY"] = fy_data["EXPORT_MLF"].astype(str) + "|" + fy_data["IMPORT_MLF"].astype(str)
+        # Explicit text for a missing factor: under pandas 3, astype(str) keeps NaN as missing, the
+        # key becomes null and groupby drops that record (a generator has no import MLF).
+        key = lambda s: s.map(lambda v: "-" if pd.isna(v) else repr(float(v)))
+        fy_data["VALUE_KEY"] = key(fy_data["EXPORT_MLF"]) + "|" + key(fy_data["IMPORT_MLF"])
 
         # For each DUID, take the MLF in effect for the most days of this FY.
         # AEMO splits a year into several records when any field changes, so days
@@ -69,10 +72,11 @@ def extract_fy_mlfs(detail_df: pd.DataFrame) -> pd.DataFrame:
         # within weeks (e.g. QPSFB1 FY25-26) gets the corrected value; ties go to
         # the later-effective value.
         for duid, group in fy_data.groupby("DUID"):
-            by_value = group.groupby("VALUE_KEY").agg(
+            by_value = group.groupby("VALUE_KEY", dropna=False).agg(
                 DAYS=("DAYS", "sum"), LAST_START=("START_DATE", "max")
             )
-            winner = by_value.sort_values(["DAYS", "LAST_START"]).index[-1]
+            # tolist(): negative positions on a pandas 3 Arrow-backed string index raise
+            winner = by_value.sort_values(["DAYS", "LAST_START"]).index.tolist()[-1]
             best = group[group["VALUE_KEY"] == winner].sort_values("START_DATE").iloc[-1]
 
             import_mlf = best["IMPORT_MLF"]
