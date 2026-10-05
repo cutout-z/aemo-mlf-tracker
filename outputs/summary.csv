@@ -113,7 +113,7 @@ TUMUT1-3,NSW1,NUTS13,TUMUT1,0.9768,0.9768,0.9768,0.9768,0.9768,0.9768,0.9768,0.9
 TUMUT1-2,NSW1,NUTS12,TUMUT1,0.9768,0.9768,0.9768,0.9768,0.9768,0.9768,0.9768,0.9768,0.9768,0.9768,0.9768,0.9768,,,,,,,0.9768,0.9768,0.0,0.0,,,,,TUMUT1,,,,82.0,Generator,Active
 TUMUT1-1,NSW1,NUTS11,TUMUT1,0.9768,0.9768,0.9768,0.9768,0.9768,0.9768,0.9768,0.9768,0.9768,0.9768,0.9768,0.9768,,,,,,,0.9768,0.9768,0.0,0.0,,,,,TUMUT1,,,,82.0,Generator,Active
 DPNTB1,NSW1,NRDP3D,DPNTBESS,,,,,,,,,,0.9048,0.9185,0.9772,,,,0.8774,0.9453,0.9085,0.9772,0.9185,0.0587,6.39,0.9085,0.9453,-0.0368,-3.89,Darlington Point Energy Storage System,Grid,Battery,Battery and Inverter,25.0,Generator,Active
-ERB02,NSW1,NER21E,ERBESS2,,,,,,,,,,,,0.9773,,,,,,0.9889,0.9773,,,,0.9889,,,,ERBESS2,,,,,Unknown,Active
+ERB02,NSW1,NER21E,ERBESS2,,,,,,,,,,,,0.9773,,,,,,0.9889,0.9773,,,,0.9889,,,,Eraring Battery Energy Storage System 2,Grid,Battery,Battery,351.0,Generator,Active
 CAPBES1,NSW1,NQBC3C,CBESS,,,,,,,,,,0.9337,0.9774,0.9783,,,,1.0084,1.0389,1.0263,0.9783,0.9774,0.0009,0.09,1.0263,1.0389,-0.0126,-1.21,Capital Battery,Grid,Battery,Battery and Inverter,125.0,Generator,Active
 ERB01,NSW1,NERB1E,ERBESS,,,,,,,,,,0.99,0.9869,0.9788,,,,0.9925,0.9901,0.9903,0.9788,0.9869,-0.0081,-0.82,0.9903,0.9901,0.0002,0.02,Eraring Battery Energy Storage System,Grid,Battery,Battery,614.6,Generator,Active
 CG4,NSW1,NCLG4D,COLONGRA,0.9793,0.9872,0.9831,0.9827,0.9852,0.9819,0.9851,0.9864,0.9831,0.9828,0.9849,0.9792,,,,,,,0.9792,0.9849,-0.0057,-0.58,,,,,Colongra Power Station,Natural Gas,Fossil,Open Cycle Gas turbines (OCGT),181.0,Generator,Active
@@ -139,7 +139,7 @@ TUMT3NL1,NSW1,NTU2L1,SNOWY1,0.991,1.0314,1.0748,1.0438,0.984,0.9913,0.9838,0.973
 JOUNAMA1,NSW1,NTU21J,JOUNAMA,0.991,1.0314,1.0748,1.0438,0.984,0.9913,0.9838,0.9735,0.9559,0.9519,0.9673,0.9887,,,,,,,0.9887,0.9673,0.0214,2.21,,,,,Jounama Small Hydro Power Station,Water,Hydro,Hydro - Gravity,14.0,Generator,Active
 SHPUMP,NSW1,,,,,,,,,,,,,,0.9892,,,,,,,0.9892,,,,,,,,Shoalhaven Power Station (Bendeela And Kangaroo Valley Power Station And Pumps),-,Other,-,240.0,Generator,Active
 ERNL1,NSW1,NEPSL,ERARING,0.9867,0.9846,0.9846,0.9853,0.9845,0.9907,0.9917,0.9942,0.9926,0.992,0.9916,0.9905,,,,,,,0.9905,0.9916,-0.0011,-0.11,,,,,ERARING POWER STATION,,Fossil,,25.0,Generator,Active
-WILLBES1,NSW1,AKWB1W,WILLBESS,,,,,,,,,,,0.9504,0.9906,,,,,1.0239,0.9714,0.9906,0.9504,0.0402,4.23,0.9714,1.0239,-0.0525,-5.13,WILLBESS,,,,,Unknown,Active
+WILLBES1,NSW1,AKWB1W,WILLBESS,,,,,,,,,,,0.9504,0.9906,,,,,1.0239,0.9714,0.9906,0.9504,0.0402,4.23,0.9714,1.0239,-0.0525,-5.13,Williamsdale BESS,Grid,Battery,Battery and Inverter,262.0,Generator,Active
 TALWB1,NSW1,NDTB1T,TALLAWAR,,,,,,,,,0.9845,0.9843,0.9924,0.9908,,,,,,,0.9908,0.9924,-0.0016,-0.16,,,,,Tallawarra Power Station,Natural Gas,Fossil,Open Cycle Gas Turbine (OCGT),320.0,Generator,Active
 BROWNMT,NSW1,NCMA1,BROWNMT,0.9763,1.0106,1.0387,1.0307,0.9797,0.9809,0.9673,0.9625,0.9679,0.9614,0.9792,0.9912,,,,,,,0.9912,0.9792,0.012,1.23,,,,,Brown Mountain Hydro Power Station,Water,Hydro,Hydro - Gravity,5.0,Generator,Active
 JNDABNE1,NSW1,NCMA2,JNDSHPS,0.9763,1.0106,1.0387,1.0307,0.9797,0.9809,0.9673,0.9625,0.9679,0.9614,0.9792,0.9912,,,,,,,0.9912,0.9792,0.012,1.23,,,,,Jindabyne Small Hydro Power Station,Water,Hydro,Hydro - Gravity,1.1,Generator,Active
@@ -161,7 +161,7 @@ DG_NSW1,NSW1,NDNSG,DG_NSW1,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,,,,,,
 STGEORG1,NSW1,NPHT1E,STGEORGE,1.0059,1.0071,1.0069,1.0063,1.003,1.0035,1.0045,1.0037,1.0013,1.0009,1.0013,1.0008,,,,,,,1.0008,1.0013,-0.0005,-0.05,,,,,St George Leagues Plant,,Fossil,,1.0,Generator,Active
 SITHE01,NSW1,NSYW1,SITHE,1.0018,1.0035,0.9979,1.0,1.0029,1.0025,1.0017,1.0018,1.0015,1.0015,1.0017,1.0015,,,,,,,1.0015,1.0017,-0.0002,-0.02,,,,,Smithfield Energy Facility,Natural Gas,Fossil,Combined Cycle Gas Turbine (CCGT),125.0,Generator,Active
 EASTCRK,NSW1,NSW21,EASTCRK,1.0018,1.0035,1.0041,1.0033,1.001,1.001,1.001,1.001,1.001,1.001,1.0016,1.0016,,,,,,,1.0016,1.0016,0.0,0.0,,,,,Eastern Creek LFG PS Units 1-4,Landfill Methane / Landfill Gas,Other Renewable,Spark Ignition Reciprocating Engine,5.056,Generator,Active
-EASTCRK2,NSW1,NSW23L,EASTCRK2,1.0021,1.0021,1.0021,1.0021,1.0021,1.001,1.001,1.001,1.001,1.001,1.0016,1.0016,,,,,,,1.0016,1.0016,0.0,0.0,,,,,Eastern Creek 2 Gas Utilisation Facility,Landfill Methane / Landfill Gas,Other Renewable,Spark Ignition Reciprocating Engine,6.738,Generator,Active
+EASTCRK2,NSW1,NSW23L,EASTCRK2,1.0021,1.0021,1.0021,1.0021,1.0021,1.001,1.001,1.001,1.001,1.001,1.0016,1.0016,,,,,,,1.0016,1.0016,0.0,0.0,,,,,Eastern Creek 2 Gas Utilisation Facility,Landfill Methane / Landfill Gas,Other Renewable,Spark Ignition Reciprocating Engine,4.492,Generator,Active
 WALGRV1,NSW1,NSWB3W,WALGBESS,,,,,,,,,,1.001,1.0018,1.0017,,,,1.0009,1.0015,1.0017,1.0017,1.0018,-0.0001,-0.01,1.0017,1.0015,0.0002,0.02,Wallgrove BESS 1,Grid,Battery,Battery and Inverter,50.0,Generator,Active
 SMTHBES1,NSW1,NHLB1S,SMTHBESS,,,,,,,,,,,1.0016,1.0017,,,,,1.0017,1.0019,1.0017,1.0016,0.0001,0.01,1.0019,1.0017,0.0002,0.02,"Smithfield Battery Energy Storage System, Units 1 - 36",Grid,Battery,Battery and Inverter,69.4,Generator,Active
 CESF1,NSW1,AQB21C,CESF,0.9924,1.0257,1.0563,1.0438,0.989,0.9982,0.9882,0.9866,0.9867,0.9751,0.9954,1.0026,,,,,,,1.0026,0.9954,0.0072,0.72,,,,,Capital East Solar Farm,Solar,Solar,Photovoltaic Flat panel,0.205,Generator,Active
@@ -237,12 +237,12 @@ STAN-2,QLD1,QSTN2,STANWELL,0.9784,0.9561,0.9329,0.9075,0.906,0.912,0.9338,0.9409
 STAN-1,QLD1,QSTN1,STANWELL,0.9784,0.9561,0.9329,0.9075,0.906,0.912,0.9338,0.9409,0.9181,0.9218,0.9273,0.9154,,,,,,,0.9154,0.9273,-0.0119,-1.28,,,,,Stanwell Power Station,Black Coal,Fossil,Steam Sub-Critical,365.0,Generator,Active
 CALLNL1,QLD1,QCAX,CALLIDE,0.959,0.9344,0.9146,0.9048,0.9024,0.9048,0.9257,0.9351,0.9181,0.927,0.9298,0.9158,,,,,,,0.9158,0.9298,-0.014,-1.51,,,,,Callide Power Station,,Fossil,,25.0,Generator,Active
 INVICTA,QLD1,QINV1I,INVICTA,1.1033,1.0327,0.9644,0.966,0.9045,0.9274,0.9272,0.9501,0.9317,0.9314,0.9561,0.9168,,,,,,,0.9168,0.9561,-0.0393,-4.11,,,,,Invicta Sugar Mill,Bagasse,Other Renewable,Steam Sub-Critical,50.3,Generator,Active
-YABULU2,QLD1,QGAR1,YABULU,1.0428,0.9992,0.9778,0.9495,0.9197,0.9196,0.9755,0.9237,0.9417,0.9482,0.9734,0.9173,,,,,,,0.9173,0.9734,-0.0561,-5.76,,,,,Townsville Gas Turbine,Natural Gas,Fossil,Combined Cycle Gas Turbine (CCGT),82.0,Generator,Active
+YABULU2,QLD1,QGAR1,YABULU,1.0428,0.9992,0.9778,0.9495,0.9197,0.9196,0.9755,0.9237,0.9417,0.9482,0.9734,0.9173,,,,,,,0.9173,0.9734,-0.0561,-5.76,,,,,Townsville Gas Turbine,Natural Gas,Fossil,OCGT,82.0,Generator,Active
 STANNL1,QLD1,QSTX,STANWELL,0.9897,0.9618,0.9366,0.9104,0.9054,0.9216,0.9463,0.9527,0.9265,0.9317,0.9366,0.9204,,,,,,,0.9204,0.9366,-0.0162,-1.73,,,,,STANWELL POWER STATION,,Fossil,,25.0,Generator,Active
 BRDDSF01,QLD1,QBSS1B,BSOUNDSF,,,,,,,,,,,0.929,0.9247,,,,,,,0.9247,0.929,-0.0043,-0.46,,,,,Broadsound Energy Park,Solar,Solar,Photovoltaic Tracking Flat panel,368.0,Generator,Active
 BRDDBES1,QLD1,QBSS2B,BSOUNDSF,,,,,,,,,,,0.929,0.9247,,,,,0.929,0.9247,0.9247,0.929,-0.0043,-0.46,0.9247,0.929,-0.0043,-0.46,Broadsound Energy Park,Grid,Battery,Battery and Inverter,240.0,Generator,Active
 YARWUN_1,QLD1,QYAG1R,YARWUN,0.9879,0.9693,0.9435,0.9245,0.9225,0.9324,0.9544,0.9627,0.9349,0.947,0.9472,0.9249,,,,,,,0.9249,0.9472,-0.0223,-2.35,,,,,Yarwun Power Station,Natural Gas,Fossil,Combined Cycle Gas Turbine (CCGT),154.0,Generator,Active
-STABESS1,QLD1,QSTB1S,STABESS,,,,,,,,,,,0.9311,0.925,,,,,0.9311,0.9159,0.925,0.9311,-0.0061,-0.66,0.9159,0.9311,-0.0152,-1.63,STABESS,,,,,Unknown,Active
+STABESS1,QLD1,QSTB1S,STABESS,,,,,,,,,,,0.9311,0.925,,,,,0.9311,0.9159,0.925,0.9311,-0.0061,-0.66,0.9159,0.9311,-0.0152,-1.63,Stanwell Battery Energy Storage System,Grid,Battery,Battery and Inverter,317.0,Generator,Active
 GLADNL1,QLD1,QGLL,G/STONE,0.9855,0.9603,0.9402,0.9206,0.9203,0.9288,0.947,0.9581,0.9323,0.941,0.9437,0.9267,,,,,,,0.9267,0.9437,-0.017,-1.8,,,,,GLADSTONE POWER STATION,,Fossil,,25.0,Generator,Active
 GSTONE3,QLD1,QGLD3,G/STONE,0.9855,0.9603,0.9402,0.9206,0.9203,0.9288,0.947,0.9581,0.9323,0.941,0.9437,0.9267,,,,,,,0.9267,0.9437,-0.017,-1.8,,,,,Gladstone Power Station,Black Coal,Fossil,Steam Sub-Critical,280.0,Generator,Active
 GSTONE4,QLD1,QGLD4,G/STONE,0.9855,0.9603,0.9402,0.9206,0.9203,0.9288,0.947,0.9581,0.9323,0.941,0.9437,0.9267,,,,,,,0.9267,0.9437,-0.017,-1.8,,,,,Gladstone Power Station,Black Coal,Fossil,Steam Sub-Critical,280.0,Generator,Active
@@ -314,12 +314,12 @@ EDENVSF1,QLD1,QORS1E,EDENVSF,,,,,,,,0.9753,0.972,0.9707,0.9823,0.9797,,,,,,,0.97
 GROSV2,QLD1,QMRV1G,GROSV2,,,1.0252,0.9683,0.9567,0.9696,0.9844,0.9923,0.9821,0.9907,0.9977,0.9797,,,,,,,0.9797,0.9977,-0.018,-1.8,,,,,Grosvenor 2,Waste Coal Mine Gas,Fossil,Spark Ignition Reciprocating Engine,15.205,Generator,Active
 GROSV1,QLD1,QMRN2G,GROSV1,,1.0727,1.0252,0.9683,0.9567,0.9696,0.9844,0.9923,0.9821,0.9907,0.9977,0.9797,,,,,,,0.9797,0.9977,-0.018,-1.8,,,,,Grosvenor 1 Waste Coal Mine Gas Power Station,Waste Coal Mine Gas,Fossil,Spark Ignition Reciprocating Engine,21.287,Generator,Active
 DDSF1,QLD1,QBRS1D,DDSF,,,0.9711,0.9812,0.9822,0.9825,0.9762,0.9796,0.9762,0.9755,0.9849,0.981,,,,,,,0.981,0.9849,-0.0039,-0.4,,,,,Darling Downs Solar Farm,Solar ,Solar,Photovoltaic Flat Panel,121.0,Generator,Active
-YABULU,QLD1,QTYP,YABULU,1.0337,1.0073,1.0035,0.9346,0.9156,0.9268,0.9661,0.9572,0.9519,0.9549,0.9508,0.9819,,,,,,,0.9819,0.9508,0.0311,3.27,,,,,Townsville Gas Turbine,Natural Gas,Fossil,Combined Cycle Gas Turbine (CCGT),160.0,Generator,Active
-WOOLES1,QLD1,QWLB1W,WOOLOOGA,,,,,,,,,,,0.9667,0.9824,,,,,0.9944,0.9674,0.9824,0.9667,0.0157,1.62,0.9674,0.9944,-0.027,-2.72,WOOLOOGA,,,,,Unknown,Active
+YABULU,QLD1,QTYP,YABULU,1.0337,1.0073,1.0035,0.9346,0.9156,0.9268,0.9661,0.9572,0.9519,0.9549,0.9508,0.9819,,,,,,,0.9819,0.9508,0.0311,3.27,,,,,Townsville Gas Turbine,Natural Gas,Fossil,OCGT,160.0,Generator,Active
+WOOLES1,QLD1,QWLB1W,WOOLOOGA,,,,,,,,,,,0.9667,0.9824,,,,,0.9944,0.9674,0.9824,0.9667,0.0157,1.62,0.9674,0.9944,-0.027,-2.72,Woolooga BESS,Grid,Battery,Battery and Inverter,280.0,Generator,Active
 GUSF1,QLD1,QBLG1G,GUSF,,,,,,,,,,,0.9836,0.9827,,,,,,,0.9827,0.9836,-0.0009,-0.09,,,,,Gunsynd Solar Farm,Solar,Solar,Photovoltaic Flat panel,122.775,Generator,Active
 COLUMSF1,QLD1,QCBR1C,COLUMSF,,,,,,,0.9846,0.9812,0.9746,0.9718,0.9865,0.9831,,,,,,,0.9831,0.9865,-0.0034,-0.34,,,,,Columboola Solar Farm,Solar,Solar,Photovoltaic Tracking Flat panel,217.0,Generator,Active
-WANDSF2,QLD1,QWSR2W,WANDSF,,,,,,,,,,,0.9975,0.985,,,,,,,0.985,0.9975,-0.0125,-1.25,,,,,Wandoan Solar Farm 1,,,,,Unknown,Active
-WANDSF1,QLD1,QWSR1W,WANDSF,,,,,,,,0.9884,0.9832,0.9785,0.9975,0.985,,,,,,,0.985,0.9975,-0.0125,-1.25,,,,,Wandoan Solar Farm 1,Solar,Solar,Photovoltaic Flat Panel,159.0,Generator,Active
+WANDSF2,QLD1,QWSR2W,WANDSF,,,,,,,,,,,0.9975,0.985,,,,,,,0.985,0.9975,-0.0125,-1.25,,,,,Wandoan Solar Farm,Solar,Solar,Photovoltaic Flat Panel,310.0,Generator,Active
+WANDSF1,QLD1,QWSR1W,WANDSF,,,,,,,,0.9884,0.9832,0.9785,0.9975,0.985,,,,,,,0.985,0.9975,-0.0125,-1.25,,,,,Wandoan Solar Farm,Solar,Solar,Photovoltaic Flat Panel,159.0,Generator,Active
 ICSM,QLD1,QGNG1I,ICSM,1.0107,1.0033,0.987,0.9764,0.9728,0.9843,0.9918,0.9956,0.9816,0.9869,0.9896,0.9852,,,,,,,0.9852,0.9896,-0.0044,-0.44,,,,,ISIS Central Sugar Mill Co-generation Plant,Bagasse,Other Renewable,Steam Sub-Critical,25.0,Generator,Active
 OAKEY2SF,QLD1,QTKS2O,OAKEY2SF,,,,,0.9824,0.9783,0.9711,0.98,0.9869,0.981,0.9852,0.9856,,,,,,,0.9856,0.9852,0.0004,0.04,,,,,Oakey 2 Solar Farm,Solar,Solar,Photovoltaic Tracking Flat panel,65.0,Generator,Active
 OAKEY1SF,QLD1,QTKS1O,OAKEY1SF,,,,0.9826,0.9824,0.9783,0.9711,0.98,0.9869,0.981,0.9852,0.9856,,,,,,,0.9856,0.9852,0.0004,0.04,,,,,Oakey 1 Solar Farm,Solar,Solar,Photovoltaic Tracking Flat panel,30.0,Generator,Active
@@ -414,15 +414,15 @@ LADBROK2,SA1,SPEW2,LADBROKE,0.9563,0.8872,0.917,0.9474,0.9831,0.9685,0.9883,0.95
 LADBROK1,SA1,SPEW1,LADBROKE,0.9563,0.8872,0.917,0.9474,0.9831,0.9685,0.9883,0.9553,0.9736,0.9712,0.9522,0.9898,,,,,,,0.9898,0.9522,0.0376,3.95,,,,,Ladbroke Grove Power Station,Natural Gas,Fossil,Open Cycle Gas turbines (OCGT),40.0,Generator,Active
 SNUG1,SA1,SSGA1,SNUG,0.9829,0.8417,0.9318,0.9325,0.9474,0.9518,0.9533,0.9388,0.9877,0.9608,0.9723,0.9902,,,,,,,0.9902,0.9723,0.0179,1.84,,,,,Snuggery Power Station,Diesel,Fossil,Open Cycle Gas turbines (OCGT),63.0,Generator,Active
 TEMPB1,SA1,STET1T,TEMPBESS,,,,,,,,,,0.9956,0.9856,0.9907,,,,0.9964,1.0146,1.0112,0.9907,0.9856,0.0051,0.52,1.0112,1.0146,-0.0034,-0.34,Templers Battery Energy Storage System,Grid,Battery,Battery and Inverter,138.0,Generator,Active
-TB3B1,SA1,STB31T,TB3BESS,,,,,,,,,,,,0.9917,,,,,,1.0036,0.9917,,,,1.0036,,,,TB3BESS,,,,,Unknown,Active
+TB3B1,SA1,STB31T,TB3BESS,,,,,,,,,,,,0.9917,,,,,,1.0036,0.9917,,,,1.0036,,,,Tailem Bend 3 BESS,Grid,Battery,Battery and Inverter,263.0,Generator,Active
 SNUGNL1,SA1,SSNN,SNUG,0.9704,0.9176,0.9102,0.9482,1.015,0.9723,1.0358,1.0029,1.0526,1.0664,0.995,0.9934,0.9174,0.943,0.9996,,,,0.9934,0.995,-0.0016,-0.16,,,,,Snuggery Power Station,Diesel,Fossil,Open Cycle Gas turbines (OCGT),21.0,Generator,Active
 QPS3,SA1,SQPS3,QUARANTN,0.9932,0.9864,0.9856,0.9854,0.9852,0.9854,0.9858,0.9871,0.9946,0.9949,0.9957,0.9935,,,,,,,0.9935,0.9957,-0.0022,-0.22,,,,,Quarantine Power Station,Natural Gas,Fossil,Open Cycle Gas turbines (OCGT),24.0,Generator,Active
 QPS2,SA1,SQPS2,QUARANTN,0.9932,0.9864,0.9856,0.9854,0.9852,0.9854,0.9858,0.9871,0.9946,0.9949,0.9957,0.9935,,,,,,,0.9935,0.9957,-0.0022,-0.22,,,,,Quarantine Power Station,Natural Gas,Fossil,Open Cycle Gas turbines (OCGT),24.0,Generator,Active
 QPS1,SA1,SQPS1,QUARANTN,0.9932,0.9864,0.9856,0.9854,0.9852,0.9854,0.9858,0.9871,0.9946,0.9949,0.9957,0.9935,,,,,,,0.9935,0.9957,-0.0022,-0.22,,,,,Quarantine Power Station,Natural Gas,Fossil,Open Cycle Gas turbines (OCGT),29.0,Generator,Active
 QPS5,SA1,SQPS5Q,QUARANTN,0.9932,0.9864,0.9856,0.9854,0.9852,0.9854,0.9858,0.9871,0.9946,0.9949,0.9957,0.9935,,,,,,,0.9935,0.9957,-0.0022,-0.22,,,,,Quarantine Power Station,Natural Gas,Fossil,Open Cycle Gas turbines (OCGT),128.0,Generator,Active
 QPS4,SA1,SQPS4,QUARANTN,0.9932,0.9864,0.9856,0.9854,0.9852,0.9854,0.9858,0.9871,0.9946,0.9949,0.9957,0.9935,,,,,,,0.9935,0.9957,-0.0022,-0.22,,,,,Quarantine Power Station,Natural Gas,Fossil,Open Cycle Gas turbines (OCGT),24.0,Generator,Active
-SMFBESS2,SA1,SUNN1S,SMFBESS2,,,,,,,,,,,0.9995,0.9953,,,,,0.9998,1.0008,0.9953,0.9995,-0.0042,-0.42,1.0008,0.9998,0.001,0.1,SMFBESS2,,,,,Unknown,Active
-SMFBESS1,SA1,SUMM1S,SMFBESS1,,,,,,,,,,,0.9995,0.9953,,,,,0.9998,1.0008,0.9953,0.9995,-0.0042,-0.42,1.0008,0.9998,0.001,0.1,SMFBESS1,,,,,Unknown,Active
+SMFBESS2,SA1,SUNN1S,SMFBESS2,,,,,,,,,,,0.9995,0.9953,,,,,0.9998,1.0008,0.9953,0.9995,-0.0042,-0.42,1.0008,0.9998,0.001,0.1,Summerfield BESS 2,Grid,Battery,Battery and Inverter,153.65,Generator,Active
+SMFBESS1,SA1,SUMM1S,SMFBESS1,,,,,,,,,,,0.9995,0.9953,,,,,0.9998,1.0008,0.9953,0.9995,-0.0042,-0.42,1.0008,0.9998,0.001,0.1,Summerfield BESS 1,Grid,Battery,Battery and Inverter,153.65,Generator,Active
 MANNSF2,SA1,SMAE1M,MANNSF2,,,,,,,,,0.9893,0.9937,0.9932,0.9959,,,,,,,0.9959,0.9932,0.0027,0.27,,,,,Mannum 2 Solar Farm,Solar,Solar,Photovoltaic Tracking Flat panel,37.0,Generator,Active
 TB2B1,SA1,STBB4T,TB2HYB,,,,,,,,,,1.0102,0.9945,0.9968,,,,1.0102,0.9945,0.9968,0.9968,0.9945,0.0023,0.23,0.9968,0.9945,0.0023,0.23,Tailem Bend 2 Hybrid Renewable Power Station,Grid,Battery,Battery and Inverter,50.0,Generator,Active
 TB2SF1,SA1,STBB1T,TB2HYB,,,,,,,,0.9966,1.0079,1.0102,0.9945,0.9968,,,,,,,0.9968,0.9945,0.0023,0.23,,,,,Tailem Bend 2 Hybrid Renewable Power Station,Solar,Solar,Photovoltaic Flat Panel,105.0,Generator,Active
@@ -435,7 +435,7 @@ SATGN1,SA1,SPAG1E,SATGN,,,1.0022,0.9971,1.0006,0.9963,1.0018,,,,,0.9993,,,,,,,0.
 TORRB4,SA1,STSB4,TORRIS,1.0019,1.0014,1.0016,1.0009,0.9997,0.9998,0.9999,0.9994,0.9997,0.9998,0.9992,0.9996,,,,,,,0.9996,0.9992,0.0004,0.04,,,,,Torrens Island Power Station,Natural Gas / Fuel Oil,Fossil,Steam Sub-Critical,200.0,Generator,Active
 TORRB3,SA1,STSB3,TORRIS,1.0019,1.0014,1.0016,1.0009,0.9997,0.9998,0.9999,0.9994,0.9997,0.9998,0.9992,0.9996,,,,,,,0.9996,0.9992,0.0004,0.04,,,,,Torrens Island Power Station,Natural Gas / Fuel Oil,Fossil,Steam Sub-Critical,200.0,Generator,Active
 TORRB2,SA1,STSB2,TORRIS,1.0019,1.0014,1.0016,1.0009,0.9997,0.9998,0.9999,0.9994,0.9997,0.9998,0.9992,0.9996,,,,,,,0.9996,0.9992,0.0004,0.04,,,,,Torrens Island Power Station,Natural Gas / Fuel Oil,Fossil,Steam Sub-Critical,200.0,Generator,Active
-TORRB1,SA1,STSB1,TORRIS,1.0019,1.0014,1.0016,1.0009,0.9997,0.9998,0.9999,0.9994,0.9997,0.9998,0.9992,0.9996,,,,,,,0.9996,0.9992,0.0004,0.04,,,,,Torrens Island Power Station,Natural Gas / Fuel Oil,Fossil,Steam Sub-Critical,200.0,Generator,Active
+TORRB1,SA1,STSB1,TORRIS,1.0019,1.0014,1.0016,1.0009,0.9997,0.9998,0.9999,0.9994,0.9997,0.9998,0.9992,0.9996,,,,,,,0.9996,0.9992,0.0004,0.04,,,,,TORRENS ISLAND POWER STATION,,Fossil,,200.0,Generator,Active
 OSB-AG,SA1,SNBN1,OSBORNE,0.9995,0.9994,0.9988,0.9992,0.9997,0.9998,0.9999,0.9999,0.9992,0.9994,0.9995,0.9997,,,,,,,0.9997,0.9995,0.0002,0.02,,,,,Osborne Power Station,Natural Gas,Fossil,Combined Cycle Gas Turbine (CCGT),180.0,Generator,Active
 TIB1,SA1,STPB3T,TIBESS,,,,,,,,,,0.9998,0.9992,0.9997,,,,0.9996,0.9993,0.9994,0.9997,0.9992,0.0005,0.05,0.9994,0.9993,0.0001,0.01,Torrens Island BESS,Grid,Battery,Battery and Inverter,250.0,Generator,Active
 SNAPPER1,SA1,SNPT1S,SNAPPER,,,,,,,0.999,0.999,0.9993,0.9996,0.9987,0.9999,,,,,,,0.9999,0.9987,0.0012,0.12,,,,,Snapper Point Power Station,Diesel,Fossil,Open Cycle Gas turbines (OCGT),154.0,Generator,Active
@@ -529,7 +529,7 @@ TVPP104,TAS1,TBB14A,BBP31,0.9995,1.0001,1.0001,1.0003,0.9997,0.9975,0.9982,0.997
 BBTHREE3,TAS1,TBB13,BBP31,0.9995,1.0001,1.0001,1.0003,0.9997,0.9975,0.9982,0.9975,0.9968,0.9977,0.9986,0.9977,,,,,,,0.9977,0.9986,-0.0009,-0.09,,,,,Bell Bay Three Power Station,Natural Gas,Fossil,Open Cycle Gas turbines (OCGT),35.0,Generator,Active
 BBTHREE2,TAS1,TBB12,BBP31,0.9995,1.0001,1.0001,1.0003,0.9997,0.9975,0.9982,0.9975,0.9968,0.9977,0.9986,0.9977,,,,,,,0.9977,0.9986,-0.0009,-0.09,,,,,Bell Bay Three Power Station,Natural Gas,Fossil,Open Cycle Gas turbines (OCGT),35.0,Generator,Active
 BBTHREE1,TAS1,TBB11,BBP31,0.9995,1.0001,1.0001,1.0003,0.9997,0.9975,0.9982,0.9975,0.9968,0.9977,0.9986,0.9977,,,,,,,0.9977,0.9986,-0.0009,-0.09,,,,,Bell Bay Three Power Station,Natural Gas,Fossil,Open Cycle Gas turbines (OCGT),35.0,Generator,Active
-BLNKTAS,TAS1,TGT11,BASSLINK,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,,,,,,,1.0,1.0,0.0,0.0,,,,,Basslink HVDC Link,,Other,,478.0,Generator,Active
+BLNKTAS,TAS1,TGT11,BASSLINK,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,,,,,,,1.0,1.0,0.0,0.0,,,,,Basslink HVDC Link,,,,480.0,Generator,Active
 DG_TAS1,TAS1,TDNSG,DG_TAS1,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,,,,,,,1.0,1.0,0.0,0.0,,,,,TAS1 Dummy Generator,,,,3000.0,Generator,Active
 TVCC201,TAS1,TTV11A,TVCCPS,0.9996,1.0,1.0,0.9999,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,,,,,,,1.0,1.0,0.0,0.0,,,,,Tamar Valley Combined Cycle Power Station,Natural Gas,Fossil,Combined Cycle Gas Turbine (CCGT),208.6,Generator,Active
 LI_WY_CA,TAS1,TLI11,LI_WY_CA,0.9915,1.0028,0.9919,0.9977,0.9936,0.9817,0.9789,0.9845,0.9809,0.9899,0.9855,1.0052,,,,,,,1.0052,0.9855,0.0197,2.0,,,,,Catagunya / Liapootah / Wayatinah Power Station,Water,Hydro,Hydro - Gravity,173.7,Generator,Active
@@ -585,7 +585,7 @@ MCKAY1,VIC1,VMKP1,MCKAY,0.9883,0.9543,0.9213,0.9265,0.9618,0.965,0.9726,0.9665,0
 SALTCRK1,VIC1,VTG61S,SALTCRK,,,1.0193,1.0076,0.9742,0.9588,0.9515,0.9584,0.9476,0.9388,0.9519,0.9499,,,,,,,0.9499,0.9519,-0.002,-0.21,,,,,Salt Creek Wind Farm,Wind,Wind,Wind - Onshore,54.0,Generator,Active
 KESSB1,VIC1,VKOT1K,KOORBESS,,,,,,,,,,0.9572,1.003,0.9505,,,,0.9836,0.9704,0.9794,0.9505,1.003,-0.0525,-5.23,0.9794,0.9704,0.009,0.93,Koorangie Energy Storage System,Grid,Battery,Battery and Inverter,185.0,Generator,Active
 MRTLSWF1,VIC1,VTG21M,MRTLSWF,,,,,,,0.9768,0.9573,0.9528,0.943,0.9525,0.9507,,,,,,,0.9507,0.9525,-0.0018,-0.19,,,,,Mortlake South Wind Farm,Wind,Wind,Wind - Onshore,157.5,Generator,Active
-PLBESS1,VIC1,VPLT1P,PLBESS1,,,,,,,,,,,,0.9515,,,,,,0.9601,0.9515,,,,0.9601,,,,PLBESS1,,,,,Unknown,Active
+PLBESS1,VIC1,VPLT1P,PLBESS1,,,,,,,,,,,,0.9515,,,,,,0.9601,0.9515,,,,0.9601,,,,Pine Lodge BESS,Grid,Battery,Battery and Inverter,344.4,Generator,Active
 YENDWF1,VIC1,VBAW1Y,YENDONWF,,,,0.9986,0.9612,0.9474,0.9422,0.9497,0.9522,0.9425,0.9537,0.9547,,,,,,,0.9547,0.9537,0.001,0.1,,,,,Yendon Wind Farm,Wind,Wind,Wind - Onshore,144.4,Generator,Active
 ELAINWF1,VIC1,VELT3E,ELAINEWF,,,,,0.965,0.9501,0.9459,0.948,0.9576,0.9475,0.9569,0.9556,,,,,,,0.9556,0.9569,-0.0013,-0.14,,,,,Elaine Wind Farm,Wind,Wind,Wind - Onshore,83.6,Generator,Active
 MOORAWF1,VIC1,VELT2M,MOORAWF,,,,,,0.9501,0.9459,0.948,0.9576,0.9475,0.9569,0.9556,,,,,,,0.9556,0.9569,-0.0013,-0.14,,,,,Moorabool Wind Farm ,Wind,Wind,Wind - Onshore,312.0,Generator,Active
@@ -626,7 +626,7 @@ BALB1,VIC1,VBA23B,BALBESS,,,,,,,,,,0.9713,0.9809,0.9814,,,,0.9605,0.9766,0.9761,
 GPWFEST2,VIC1,VGPT2G,GPWFEAST,,,,,,,,,,0.9808,0.9834,0.9815,,,,,,,0.9815,0.9834,-0.0019,-0.19,,,,,Golden Plains Wind Farm East,Wind,Wind,Wind - Onshore,260.4,Generator,Active
 GPWFEST1,VIC1,VGPT1G,GPWFEAST,,,,,,,,,,0.9808,0.9834,0.9815,,,,,,,0.9815,0.9834,-0.0019,-0.19,,,,,Golden Plains Wind Farm East,Wind,Wind,Wind - Onshore,248.0,Generator,Active
 GPWFEST3,VIC1,VGPT3G,GPWFEAST,,,,,,,,,,0.9808,0.9834,0.9815,,,,,,,0.9815,0.9834,-0.0019,-0.19,,,,,Golden Plains Wind Farm East,Wind,Wind,Wind - Onshore,248.0,Generator,Active
-WOORB1,VIC1,VJL21W,WOOREEN,,,,,,,,,,,,0.9817,,,,,,0.9862,0.9817,,,,0.9862,,,,WOOREEN,,,,,Unknown,Active
+WOORB1,VIC1,VJL21W,WOOREEN,,,,,,,,,,,,0.9817,,,,,,0.9862,0.9817,,,,0.9862,,,,Wooreen Battery Energy Storage System,Grid,Battery,Battery and Inverter,491.0,Generator,Active
 HD1WF1,VIC1,VTR11H,HDWF,,,,,,,,,0.9849,0.9809,0.9865,0.9822,,,,,,,0.9822,0.9865,-0.0043,-0.44,,,,,Hawkesdale Wind Farm,Wind,Wind,Wind - Onshore,96.6,Generator,Active
 GPWFWST2,VIC1,VGP22G,GPWFWEST,,,,,,,,,,,0.9837,0.9823,,,,,,,0.9823,0.9837,-0.0014,-0.14,,,,,Golden Plains Wind Farm West,Wind,Wind,Wind - Onshore,310.0,Generator,Active
 GPWFWST1,VIC1,VGP21G,GPWFWEST,,,,,,,,,,,0.9837,0.9823,,,,,,,0.9823,0.9837,-0.0014,-0.14,,,,,Golden Plains Wind Farm West,Wind,Wind,Wind - Onshore,266.0,Generator,Active
@@ -657,11 +657,11 @@ LYA2,VIC1,VLYP2,LOYYANGA,0.9742,0.9723,0.9801,0.9798,0.9754,0.976,0.9759,0.9783,
 LYA1,VIC1,VLYP1,LOYYANGA,0.9742,0.9723,0.9801,0.9798,0.9754,0.976,0.9759,0.9783,0.9782,0.9809,0.9815,0.9834,,,,,,,0.9834,0.9815,0.0019,0.19,,,,,Loy Yang A Power Station,Brown Coal,Fossil,Steam Sub-Critical,560.0,Generator,Active
 LOYYB2,VIC1,VLYP6,LOYYB,0.9742,0.9723,0.9801,0.9798,0.9754,0.976,0.9759,0.9783,0.9782,0.9809,0.9815,0.9834,,,,,,,0.9834,0.9815,0.0019,0.19,,,,,Loy Yang B Power Station,Brown Coal,Fossil,Steam Sub-Critical,500.0,Generator,Active
 LOYYB1,VIC1,VLYP5,LOYYB,0.9742,0.9723,0.9801,0.9798,0.9754,0.976,0.9759,0.9783,0.9782,0.9809,0.9815,0.9834,,,,,,,0.9834,0.9815,0.0019,0.19,,,,,Loy Yang B Power Station,Brown Coal,Fossil,Steam Sub-Critical,500.0,Generator,Active
-BLNKVIC,VIC1,VLYP13,BASSLINK,0.9828,0.9765,0.9874,0.9839,0.9728,0.962,0.9735,0.9749,0.9755,0.9777,0.9907,0.9853,,,,,,,0.9853,0.9907,-0.0054,-0.55,,,,,Basslink HVDC Link,,Other,,594.0,Generator,Active
+BLNKVIC,VIC1,VLYP13,BASSLINK,0.9828,0.9765,0.9874,0.9839,0.9728,0.962,0.9735,0.9749,0.9755,0.9777,0.9907,0.9853,,,,,,,0.9853,0.9907,-0.0054,-0.55,,,,,Basslink HVDC Link,,,,600.0,Generator,Active
 EILDON2,VIC1,VEPS2,EILDON,1.0026,0.9945,0.9696,0.9782,0.9859,0.9903,0.9995,0.9887,0.992,0.9912,0.9945,0.9856,,,,,,,0.9856,0.9945,-0.0089,-0.89,,,,,Eildon Power Station,Water,Hydro,Hydro - Gravity,60.0,Generator,Active
 EILDON1,VIC1,VEPS1,EILDON,1.0026,0.9945,0.9696,0.9782,0.9859,0.9903,0.9995,0.9887,0.992,0.9912,0.9945,0.9856,,,,,,,0.9856,0.9945,-0.0089,-0.89,,,,,Eildon Power Station,Water,Hydro,Hydro - Gravity,60.0,Generator,Active
-WKIEWA1,VIC1,VWKP1,WKIEWA,1.0247,1.0026,0.954,0.9607,0.9989,1.0024,1.0096,1.0049,1.011,1.0026,1.0038,0.9865,,,,,,,0.9865,1.0038,-0.0173,-1.72,,,,,West Kiewa Power Station,Water,Hydro,Hydro - Gravity,31.0,Generator,Active
-WKIEWA2,VIC1,VWKP2,WKIEWA,1.0247,1.0026,0.954,0.9607,0.9989,1.0024,1.0096,1.0049,1.011,1.0026,1.0038,0.9865,,,,,,,0.9865,1.0038,-0.0173,-1.72,,,,,West Kiewa Power Station,Water,Hydro,Hydro - Gravity,31.0,Generator,Active
+WKIEWA1,VIC1,VWKP1,WKIEWA,1.0247,1.0026,0.954,0.9607,0.9989,1.0024,1.0096,1.0049,1.011,1.0026,1.0038,0.9865,,,,,,,0.9865,1.0038,-0.0173,-1.72,,,,,West Kiewa Power Station,Water,Hydro,Hydro - Gravity,80.0,Generator,Active
+WKIEWA2,VIC1,VWKP2,WKIEWA,1.0247,1.0026,0.954,0.9607,0.9989,1.0024,1.0096,1.0049,1.011,1.0026,1.0038,0.9865,,,,,,,0.9865,1.0038,-0.0173,-1.72,,,,,WEST KIEWA POWER STATION,,Hydro,,31.0,Generator,Active
 VBB1,VIC1,VMLB3V,VBB,,,,,,,,,,0.9879,0.9897,0.988,,,,0.9858,0.9918,0.9897,0.988,0.9897,-0.0017,-0.17,0.9897,0.9918,-0.0021,-0.21,Victorian Big Battery,Grid,Battery,Battery and Inverter,360.0,Generator,Active
 LVES1,VIC1,VMW61L,LVES,,,,,,,,,,0.9818,0.9824,0.9888,,,,0.9889,0.9902,0.9934,0.9888,0.9824,0.0064,0.65,0.9934,0.9902,0.0032,0.32,Latrobe Valley BESS,Grid,Battery,Battery and Inverter,140.0,Generator,Active
 MTGELWF1,VIC1,VGTW1M,MTGELWF,,,0.9999,0.9989,0.9871,0.985,0.9862,0.9879,0.9896,0.9855,0.9879,0.989,,,,,,,0.989,0.9879,0.0011,0.11,,,,,Mt Gellibrand Wind Farm,Wind,Wind,Wind - Onshore,138.0,Generator,Active
@@ -678,7 +678,7 @@ PIBESS1,VIC1,VMWT12,PIBESS,,,,,,,,,,0.9848,0.9862,0.992,,,,0.9848,0.9862,0.992,0
 TGNSS1,VIC1,VMWT1T,TGNSS,0.9799,0.9759,0.9886,0.9879,0.9938,0.9955,0.9936,0.9977,0.9825,0.9848,0.9862,0.992,,,,,,,0.992,0.9862,0.0058,0.59,,,,,Traralgon Network Support Station,Natural Gas,Fossil,Spark Ignition Reciprocating Engine,10.0,Generator,Active
 TOORAWF,VIC1,VMWT5,TOORAWF,0.9799,0.9759,0.9886,0.9879,0.9938,0.9955,0.9936,0.9977,0.9825,0.9848,0.9862,0.992,,,,,,,0.992,0.9862,0.0058,0.59,,,,,Toora Wind Farm,Wind,Wind,Wind - Onshore,21.0,Generator,Active
 BALDHWF1,VIC1,VMWT9B,BHWF,0.9799,0.9759,0.9886,0.9879,0.9938,0.9955,0.9936,0.9977,0.9825,0.9848,0.9862,0.992,,,,,,,0.992,0.9862,0.0058,0.59,,,,,Bald Hills Wind Farm,Wind,Wind,Wind - Onshore,106.6,Generator,Active
-LONGFORD,VIC1,VMWT6,LONGFORD,0.9799,0.9759,0.9886,0.9879,0.9938,0.9955,0.9936,0.9977,0.9825,0.9848,0.9862,0.992,,,,,,,0.992,0.9862,0.0058,0.59,,,,,LONGFORD PLANT,,Fossil,,44.0,Generator,Active
+LONGFORD,VIC1,VMWT6,LONGFORD,0.9799,0.9759,0.9886,0.9879,0.9938,0.9955,0.9936,0.9977,0.9825,0.9848,0.9862,0.992,,,,,,,0.992,0.9862,0.0058,0.59,,,,,Longford Plant,Natural Gas,Fossil,Open Cycle Gas turbines (OCGT),22.0,Generator,Active
 RANGEB1,VIC1,VCB33R,RANGBESS,,,,,,,,,,0.991,0.9908,0.9924,,,,0.9955,0.9961,0.9957,0.9924,0.9908,0.0016,0.16,0.9957,0.9961,-0.0004,-0.04,Rangebank BESS,Grid,Battery,Battery and Inverter,260.0,Generator,Active
 WILLHOV1,VIC1,VW061W,WILLHOV,1.048,1.0235,0.9621,0.9903,1.0188,1.0274,1.0299,1.0182,1.0233,1.016,1.0135,0.9945,,,,,,,0.9945,1.0135,-0.019,-1.87,,,,,William Hovell Power Station,Water,Hydro,Run of River,1.5,Generator,Active
 FSWF1,VIC1,VTGT7F,FSWF,,,,,,1.0079,1.0035,0.9972,0.9933,0.9993,1.0018,0.9949,,,,,,,0.9949,1.0018,-0.0069,-0.69,,,,,Ferguson South Wind Farm,Wind,Wind,Wind - Onshore,8.0,Generator,Active
