@@ -4,3 +4,6 @@ __pycache__/
 .venv/
 venv/
 .DS_Store
+
+# the Tailwind standalone CLI — scripts/build-css.sh fetches it if absent (never commit the 48 MB binary)
+tools/
