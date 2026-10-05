@@ -46,6 +46,12 @@ def extract_fy_mlfs(detail_df: pd.DataFrame) -> pd.DataFrame:
         # Find records that overlap with this FY
         # A record overlaps if: START_DATE < fy_end AND END_DATE > fy_begin
         mask = (detail_df["START_DATE"] < fy_end) & (detail_df["END_DATE"] > fy_begin)
+        # The current FY only accepts records AEMO has set for it (effective on or
+        # after 1 July). Until AEMO loads them, last year's record is open-ended and
+        # would carry last year's MLF into this year's column; those DUIDs stay
+        # blank unless the final MLF workbook supplies a value (build_summary).
+        if fy_start_year == config.FY_END:
+            mask &= detail_df["START_DATE"] >= fy_begin
         fy_data = detail_df[mask].copy()
 
         if fy_data.empty:
@@ -111,8 +117,8 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
     Returns a wide-format DataFrame: one row per DUID with FY columns.
 
     - final_excel: DataFrame [DUID, FINAL_MLF] from AEMO's published final Excel.
-      When provided, overrides the current FY column (which would otherwise carry
-      forward FY25-26 values until DUDETAILSUMMARY is updated on July 1).
+      When provided, overrides the current FY column, which is otherwise blank
+      until DUDETAILSUMMARY carries records effective from 1 July.
     - indicative: DataFrame [DUID, INDICATIVE_MLF] for the *next* FY draft column.
     """
     df = compute_yoy_changes(fy_mlfs)
@@ -134,6 +140,13 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
     result = meta.join(pivot)
     if import_pivot is not None:
         result = result.join(import_pivot)
+
+    # The current FY column always exists, even before AEMO has loaded any record
+    # for it, so it is filled from the final workbook or left blank — the YoY
+    # columns below never fall back to comparing the two previous FYs.
+    current_fy_col = f"FY{config.FY_END % 100:02d}-{(config.FY_END + 1) % 100:02d}"
+    if current_fy_col not in result.columns:
+        result[current_fy_col] = float("nan")
 
     # Add stub rows for DUIDs in the final Excel that have no DUDETAILSUMMARY history.
     # These are either newly commissioned assets (first MLF = current FY) or DUIDs
@@ -166,16 +179,13 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
     # AEMO publishes the final Excel in April; DUDETAILSUMMARY isn't updated until July.
     # This ensures the current FY column reflects genuine final values, not FY-1 fallbacks.
     if final_excel is not None and not final_excel.empty:
-        from . import config as _cfg
-        current_fy_col = f"FY{_cfg.FY_END % 100:02d}-{(_cfg.FY_END + 1) % 100:02d}"
-        if current_fy_col in result.columns:
-            final_map = final_excel.set_index("DUID")["FINAL_MLF"]
-            overridden = result.index.map(final_map)
-            result[current_fy_col] = overridden.where(overridden.notna(), result[current_fy_col])
-            logger.info(
-                f"Applied final Excel overrides to '{current_fy_col}': "
-                f"{overridden.notna().sum()} DUIDs updated"
-            )
+        final_map = final_excel.set_index("DUID")["FINAL_MLF"]
+        overridden = result.index.map(final_map)
+        result[current_fy_col] = overridden.where(overridden.notna(), result[current_fy_col])
+        logger.info(
+            f"Applied final Excel overrides to '{current_fy_col}': "
+            f"{overridden.notna().sum()} DUIDs updated"
+        )
 
         # Apply import MLF overrides from the final Excel (BDU Import MLF column)
         current_fy_import_col = f"{current_fy_col} Import"
@@ -192,12 +202,18 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
             )
 
     # Compute latest YoY change (final FYs only)
-    fy_cols = sorted([c for c in pivot.columns if c.startswith("FY")])
+    fy_cols = sorted({c for c in pivot.columns if c.startswith("FY")} | {current_fy_col})
     if len(fy_cols) >= 2:
         current_fy = fy_cols[-1]
         prev_fy = fy_cols[-2]
         result["LATEST_MLF"] = result[current_fy]
         result["PREV_MLF"] = result[prev_fy]
+        not_loaded = result[prev_fy].notna() & result[current_fy].isna()
+        if not_loaded.any():
+            logger.warning(
+                f"{not_loaded.sum()} DUIDs have a {prev_fy} MLF but no {current_fy} value "
+                f"(no record effective from 1 July and not in the final workbook); left blank"
+            )
         result["YOY_CHANGE"] = (result["LATEST_MLF"] - result["PREV_MLF"]).round(4)
         result["YOY_PCT_CHANGE"] = (
             result["YOY_CHANGE"] / result["PREV_MLF"] * 100
