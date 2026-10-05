@@ -10,7 +10,7 @@ import pandas as pd
 from . import config
 from .download import download_dudetailsummary, get_latest_available_month
 from .generators import fetch_generator_metadata
-from .indicative import download_draft_mlfs, download_final_mlfs, get_indicative_fy
+from .indicative import fetch_mlf_workbooks, get_indicative_fy
 from .analyse import extract_fy_mlfs, build_summary
 from .excel_output import generate_all_workbooks
 
@@ -82,11 +82,9 @@ def run(full_refresh: bool = False):
         logger.error("No FY-level MLF data extracted. Exiting.")
         sys.exit(1)
 
-    # Step 5: Fetch final MLF Excel for current FY (published April; DUDETAILSUMMARY updated July)
-    final_excel = download_final_mlfs(cache_dir, full_refresh=full_refresh)
-
-    # Step 6: Fetch indicative/draft MLFs for upcoming FY
-    indicative = download_draft_mlfs(cache_dir)
+    # Steps 5-6: final MLF Excel for the current FY (published April; required only until
+    # DUDETAILSUMMARY carries the year) and the indicative/draft MLFs for the next FY
+    final_excel, indicative = fetch_mlf_workbooks(cache_dir, detail_df, full_refresh=full_refresh)
 
     # Step 7: Build summary (wide format with metadata)
     summary = build_summary(fy_mlfs, generators, indicative, final_excel, station_names)

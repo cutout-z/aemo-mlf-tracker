@@ -1,6 +1,7 @@
 """Download and parse AEMO's draft/indicative MLFs for the upcoming financial year."""
 
 import logging
+import re
 import time
 from pathlib import Path
 
@@ -36,6 +37,32 @@ SHEET_REGION_MAP = {
 }
 
 
+# AEMO sometimes lists a DUID twice when its MLF is revised after publication, e.g.
+# "Wandoan South Solar Farm 1 (as published on 01/04/2026)" followed by
+# "Wandoan South Solar Farm 1 (effective from 01/07/2026)". The dating note in the
+# Generator column says which row applies.
+_EFFECTIVE_FROM_RE = re.compile(r"effective from (\d{1,2}/\d{1,2}/\d{4})", re.IGNORECASE)
+_AS_PUBLISHED_RE = re.compile(r"as published on", re.IGNORECASE)
+
+
+def _row_priority(name, fy_begin: pd.Timestamp) -> tuple[int, pd.Timestamp]:
+    """Rank a workbook row among duplicates of its DUID (higher wins).
+
+    3: effective from a date on or before 1 July (latest such date wins)
+    2: no dating note
+    1: effective from a date after 1 July (a mid-year revision)
+    0: "as published on" — superseded by a later row
+    """
+    text = "" if pd.isna(name) else str(name)
+    match = _EFFECTIVE_FROM_RE.search(text)
+    if match:
+        effective = pd.to_datetime(match.group(1), dayfirst=True)
+        return (3 if effective <= fy_begin else 1), effective
+    if _AS_PUBLISHED_RE.search(text):
+        return 0, pd.Timestamp.min
+    return 2, pd.Timestamp.min
+
+
 def get_indicative_fy() -> tuple[int, str, str]:
     """Determine which FY the next indicative/draft MLFs are for.
 
@@ -49,34 +76,51 @@ def get_indicative_fy() -> tuple[int, str, str]:
 
 
 def _download_mlf_excel(
-    url: str, cache_path: Path, fy_label: str, col_name: str
+    url: str, cache_path: Path, fy_label: str, col_name: str, required: bool = False
 ) -> pd.DataFrame | None:
-    """Shared downloader for draft and final MLF Excel files."""
+    """Shared downloader for draft and final MLF Excel files.
+
+    A 404 means AEMO hasn't published the workbook yet and returns None — unless
+    `required`, when it is an error. Any other non-200 response (AEMO's Cloudflare
+    answers scripted fetches with 403), a network failure, or a body that isn't an
+    xlsx raises, so a blocked fetch can never silently drop a column.
+    """
     if not cache_path.exists():
         logger.info(f"Downloading MLF Excel from {url} ...")
         for attempt in range(config.MAX_RETRIES):
+            last_attempt = attempt == config.MAX_RETRIES - 1
             try:
                 resp = requests.get(
                     url, timeout=30,
                     headers={"User-Agent": "Mozilla/5.0 AEMO-MLF-Tracker"},
                 )
-                if resp.status_code == 404:
-                    logger.info(f"MLF Excel not yet published (404): {url}")
-                    return None
-                resp.raise_for_status()
-                cache_path.write_bytes(resp.content)
-                logger.info(f"Downloaded ({len(resp.content) / 1024:.0f} KB) → {cache_path.name}")
-                break
             except requests.RequestException as e:
-                if attempt < config.MAX_RETRIES - 1:
-                    wait = config.RETRY_BACKOFF * (attempt + 1)
-                    logger.warning(f"Download failed (attempt {attempt + 1}): {e}. Retrying in {wait}s...")
-                    time.sleep(wait)
-                else:
-                    logger.warning(f"Could not download MLF Excel: {e}")
-                    return None
+                if last_attempt:
+                    raise RuntimeError(f"Could not download MLF Excel {url}: {e}") from e
+                wait = config.RETRY_BACKOFF * (attempt + 1)
+                logger.warning(f"Download failed (attempt {attempt + 1}): {e}. Retrying in {wait}s...")
+                time.sleep(wait)
+                continue
+            if resp.status_code == 404 and not required:
+                logger.info(f"MLF Excel not yet published (404): {url}")
+                return None
+            if resp.status_code >= 500 and not last_attempt:
+                wait = config.RETRY_BACKOFF * (attempt + 1)
+                logger.warning(f"HTTP {resp.status_code} (attempt {attempt + 1}). Retrying in {wait}s...")
+                time.sleep(wait)
+                continue
+            if resp.status_code != 200:
+                raise RuntimeError(f"MLF Excel download returned HTTP {resp.status_code}: {url}")
+            if not resp.content.startswith(b"PK"):
+                raise RuntimeError(f"MLF Excel download is not an xlsx (challenge page?): {url}")
+            cache_path.write_bytes(resp.content)
+            logger.info(f"Downloaded ({len(resp.content) / 1024:.0f} KB) → {cache_path.name}")
+            break
 
-    return _parse_mlf_excel(cache_path, fy_label, col_name)
+    result = _parse_mlf_excel(cache_path, fy_label, col_name)
+    if result is None and required:
+        raise RuntimeError(f"No MLFs parsed from {cache_path} (delete it to re-download)")
+    return result
 
 
 def _parse_mlf_excel(xlsx_path: Path, fy_label: str, col_name: str) -> pd.DataFrame | None:
@@ -90,6 +134,7 @@ def _parse_mlf_excel(xlsx_path: Path, fy_label: str, col_name: str) -> pd.DataFr
     """
     logger.info(f"Parsing MLF Excel for FY{fy_label} ({xlsx_path.name})...")
     import_col_name = col_name.replace("MLF", "IMPORT_MLF")
+    fy_begin = pd.Timestamp(f"{fy_label[:4]}-07-01")
 
     try:
         xls = pd.ExcelFile(xlsx_path, engine="openpyxl")
@@ -124,6 +169,7 @@ def _parse_mlf_excel(xlsx_path: Path, fy_label: str, col_name: str) -> pd.DataFr
             data = df.iloc[header_idx + 1:next_header].copy()
             data.columns = headers
             data = data.dropna(subset=["DUID"])
+            name_col = "Generator" if "Generator" in headers else headers[0]
 
             # Check if this is a BDU section with Import/Export MLF columns
             import_mlf_col = [c for c in headers if fy_label in c and "Import MLF" in c]
@@ -136,7 +182,8 @@ def _parse_mlf_excel(xlsx_path: Path, fy_label: str, col_name: str) -> pd.DataFr
                     export_mlf = pd.to_numeric(row[export_mlf_col[0]], errors="coerce")
                     import_mlf = pd.to_numeric(row[import_mlf_col[0]], errors="coerce")
                     if duid and (pd.notna(export_mlf) or pd.notna(import_mlf)):
-                        entry = {"DUID": duid, "REGIONID": region}
+                        entry = {"DUID": duid, "REGIONID": region,
+                                 "_NAME": row[name_col]}
                         if pd.notna(export_mlf):
                             entry[col_name] = export_mlf
                         if pd.notna(import_mlf):
@@ -152,14 +199,34 @@ def _parse_mlf_excel(xlsx_path: Path, fy_label: str, col_name: str) -> pd.DataFr
                     duid = str(row["DUID"]).strip()
                     mlf = pd.to_numeric(row[mlf_col[0]], errors="coerce")
                     if pd.notna(mlf) and duid:
-                        all_rows.append({"DUID": duid, "REGIONID": region, col_name: mlf})
+                        all_rows.append({"DUID": duid, "REGIONID": region, col_name: mlf,
+                                         "_NAME": row[name_col]})
 
     if not all_rows:
         logger.warning("No MLF data parsed")
         return None
 
     result = pd.DataFrame(all_rows)
-    result = result.drop_duplicates(subset="DUID", keep="first")
+
+    # Keep one row per DUID: the one that applies from 1 July per its dating note,
+    # otherwise the first listed.
+    priority = result["_NAME"].map(lambda n: _row_priority(n, fy_begin))
+    result["_PRIORITY"] = priority.str[0]
+    result["_EFFECTIVE"] = priority.str[1]
+    result["_ORDER"] = range(len(result))
+    kept = (
+        result.sort_values(["_PRIORITY", "_EFFECTIVE", "_ORDER"], ascending=[False, False, True])
+        .drop_duplicates(subset="DUID", keep="first")
+    )
+    first_listed = kept["DUID"].map(result.groupby("DUID")["_ORDER"].min())
+    revised = kept.loc[kept["_ORDER"] != first_listed, "DUID"]
+    if not revised.empty:
+        logger.info(f"Using the revised workbook row for: {', '.join(sorted(revised))}")
+    result = (
+        kept.sort_values("_ORDER")
+        .drop(columns=["_NAME", "_PRIORITY", "_EFFECTIVE", "_ORDER"])
+        .reset_index(drop=True)
+    )
 
     bdu_count = result[import_col_name].notna().sum() if import_col_name in result.columns else 0
     logger.info(f"Parsed {len(result)} MLFs for FY{fy_label} (col: {col_name}, {bdu_count} with import MLF)")
@@ -169,7 +236,8 @@ def _parse_mlf_excel(xlsx_path: Path, fy_label: str, col_name: str) -> pd.DataFr
 def download_draft_mlfs(cache_dir: str) -> pd.DataFrame | None:
     """Download and parse AEMO's draft MLF Excel for the next FY.
 
-    Returns DataFrame with columns [DUID, REGIONID, INDICATIVE_MLF] or None if unavailable.
+    Returns DataFrame with columns [DUID, REGIONID, INDICATIVE_MLF], or None if not
+    yet published (404); raises on any other download failure.
     """
     cache_path = Path(cache_dir)
     cache_path.mkdir(parents=True, exist_ok=True)
@@ -185,7 +253,8 @@ def download_final_mlfs(cache_dir: str, full_refresh: bool = False) -> pd.DataFr
     AEMO loads final MLFs into DUDETAILSUMMARY only on July 1. This function reads
     the published Excel directly so final values are available from April onwards.
 
-    Returns DataFrame with columns [DUID, REGIONID, FINAL_MLF] or None if unavailable.
+    Returns DataFrame with columns [DUID, REGIONID, FINAL_MLF]; raises if the
+    workbook can't be fetched or parsed.
     """
     cache_path = Path(cache_dir)
     cache_path.mkdir(parents=True, exist_ok=True)
@@ -201,5 +270,56 @@ def download_final_mlfs(cache_dir: str, full_refresh: bool = False) -> pd.DataFr
         xlsx_path.unlink()
         logger.info(f"Cleared cached final MLF Excel for FY{fy_label}")
 
-    return _download_mlf_excel(url, xlsx_path, fy_label, "FINAL_MLF")
+    # FY_END only rolls over in April, once the final workbook is due, so a missing
+    # workbook is an error rather than a reason to show last year's MLFs.
+    return _download_mlf_excel(url, xlsx_path, fy_label, "FINAL_MLF", required=True)
 
+
+
+def dudetail_covers_fy(detail_df: pd.DataFrame, fy_start: int) -> bool:
+    """True when DUDETAILSUMMARY already holds records effective within FY fy_start-(fy_start+1).
+
+    AEMO loads the new year's final MLFs into DUDETAILSUMMARY ahead of 1 July: the
+    2026-27 records (751 of them) first appear in the June 2026 MMSDM archive, which
+    nemweb publishes in early July. From then on the final workbook is a cross-check,
+    not the only source.
+    """
+    if detail_df is None or detail_df.empty or "START_DATE" not in detail_df.columns:
+        return False
+    begin = pd.Timestamp(year=fy_start, month=7, day=1)
+    end = pd.Timestamp(year=fy_start + 1, month=7, day=1)
+    starts = pd.to_datetime(detail_df["START_DATE"], errors="coerce")
+    return bool(((starts >= begin) & (starts < end)).any())
+
+
+def fetch_mlf_workbooks(cache_dir: str, detail_df: pd.DataFrame, full_refresh: bool = False):
+    """Fetch the final and draft MLF workbooks under the lane's failure policy.
+
+    - Final workbook: required while it is the ONLY source of the current FY's MLFs
+      (from its April publication until DUDETAILSUMMARY carries the year). A failed
+      fetch then stops the run rather than republishing last year's values. Once
+      DUDETAILSUMMARY covers the year, a failed fetch (AEMO's Cloudflare answers
+      scripted requests with 403 at times) is logged and the run continues on
+      DUDETAILSUMMARY alone.
+    - Draft workbook: indicative only, so a failed fetch is logged and the draft
+      column is left out; it never blocks the published final values.
+
+    Returns (final_excel, indicative); either may be None.
+    """
+    covered = dudetail_covers_fy(detail_df, config.FY_END)
+    try:
+        final_excel = download_final_mlfs(cache_dir, full_refresh=full_refresh)
+    except RuntimeError as e:
+        if not covered:
+            raise
+        logger.warning(
+            f"Final MLF workbook unavailable ({e}); DUDETAILSUMMARY already carries "
+            f"FY{config.FY_END}-{(config.FY_END + 1) % 100:02d}, continuing without it"
+        )
+        final_excel = None
+    try:
+        indicative = download_draft_mlfs(cache_dir)
+    except RuntimeError as e:
+        logger.warning(f"Draft MLF workbook unavailable ({e}); the draft column is left out of this run")
+        indicative = None
+    return final_excel, indicative
