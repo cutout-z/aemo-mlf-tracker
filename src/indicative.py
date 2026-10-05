@@ -49,34 +49,51 @@ def get_indicative_fy() -> tuple[int, str, str]:
 
 
 def _download_mlf_excel(
-    url: str, cache_path: Path, fy_label: str, col_name: str
+    url: str, cache_path: Path, fy_label: str, col_name: str, required: bool = False
 ) -> pd.DataFrame | None:
-    """Shared downloader for draft and final MLF Excel files."""
+    """Shared downloader for draft and final MLF Excel files.
+
+    A 404 means AEMO hasn't published the workbook yet and returns None — unless
+    `required`, when it is an error. Any other non-200 response (AEMO's Cloudflare
+    answers scripted fetches with 403), a network failure, or a body that isn't an
+    xlsx raises, so a blocked fetch can never silently drop a column.
+    """
     if not cache_path.exists():
         logger.info(f"Downloading MLF Excel from {url} ...")
         for attempt in range(config.MAX_RETRIES):
+            last_attempt = attempt == config.MAX_RETRIES - 1
             try:
                 resp = requests.get(
                     url, timeout=30,
                     headers={"User-Agent": "Mozilla/5.0 AEMO-MLF-Tracker"},
                 )
-                if resp.status_code == 404:
-                    logger.info(f"MLF Excel not yet published (404): {url}")
-                    return None
-                resp.raise_for_status()
-                cache_path.write_bytes(resp.content)
-                logger.info(f"Downloaded ({len(resp.content) / 1024:.0f} KB) → {cache_path.name}")
-                break
             except requests.RequestException as e:
-                if attempt < config.MAX_RETRIES - 1:
-                    wait = config.RETRY_BACKOFF * (attempt + 1)
-                    logger.warning(f"Download failed (attempt {attempt + 1}): {e}. Retrying in {wait}s...")
-                    time.sleep(wait)
-                else:
-                    logger.warning(f"Could not download MLF Excel: {e}")
-                    return None
+                if last_attempt:
+                    raise RuntimeError(f"Could not download MLF Excel {url}: {e}") from e
+                wait = config.RETRY_BACKOFF * (attempt + 1)
+                logger.warning(f"Download failed (attempt {attempt + 1}): {e}. Retrying in {wait}s...")
+                time.sleep(wait)
+                continue
+            if resp.status_code == 404 and not required:
+                logger.info(f"MLF Excel not yet published (404): {url}")
+                return None
+            if resp.status_code >= 500 and not last_attempt:
+                wait = config.RETRY_BACKOFF * (attempt + 1)
+                logger.warning(f"HTTP {resp.status_code} (attempt {attempt + 1}). Retrying in {wait}s...")
+                time.sleep(wait)
+                continue
+            if resp.status_code != 200:
+                raise RuntimeError(f"MLF Excel download returned HTTP {resp.status_code}: {url}")
+            if not resp.content.startswith(b"PK"):
+                raise RuntimeError(f"MLF Excel download is not an xlsx (challenge page?): {url}")
+            cache_path.write_bytes(resp.content)
+            logger.info(f"Downloaded ({len(resp.content) / 1024:.0f} KB) → {cache_path.name}")
+            break
 
-    return _parse_mlf_excel(cache_path, fy_label, col_name)
+    result = _parse_mlf_excel(cache_path, fy_label, col_name)
+    if result is None and required:
+        raise RuntimeError(f"No MLFs parsed from {cache_path} (delete it to re-download)")
+    return result
 
 
 def _parse_mlf_excel(xlsx_path: Path, fy_label: str, col_name: str) -> pd.DataFrame | None:
@@ -169,7 +186,8 @@ def _parse_mlf_excel(xlsx_path: Path, fy_label: str, col_name: str) -> pd.DataFr
 def download_draft_mlfs(cache_dir: str) -> pd.DataFrame | None:
     """Download and parse AEMO's draft MLF Excel for the next FY.
 
-    Returns DataFrame with columns [DUID, REGIONID, INDICATIVE_MLF] or None if unavailable.
+    Returns DataFrame with columns [DUID, REGIONID, INDICATIVE_MLF], or None if not
+    yet published (404); raises on any other download failure.
     """
     cache_path = Path(cache_dir)
     cache_path.mkdir(parents=True, exist_ok=True)
@@ -185,7 +203,8 @@ def download_final_mlfs(cache_dir: str, full_refresh: bool = False) -> pd.DataFr
     AEMO loads final MLFs into DUDETAILSUMMARY only on July 1. This function reads
     the published Excel directly so final values are available from April onwards.
 
-    Returns DataFrame with columns [DUID, REGIONID, FINAL_MLF] or None if unavailable.
+    Returns DataFrame with columns [DUID, REGIONID, FINAL_MLF]; raises if the
+    workbook can't be fetched or parsed.
     """
     cache_path = Path(cache_dir)
     cache_path.mkdir(parents=True, exist_ok=True)
@@ -201,5 +220,7 @@ def download_final_mlfs(cache_dir: str, full_refresh: bool = False) -> pd.DataFr
         xlsx_path.unlink()
         logger.info(f"Cleared cached final MLF Excel for FY{fy_label}")
 
-    return _download_mlf_excel(url, xlsx_path, fy_label, "FINAL_MLF")
+    # FY_END only rolls over in April, once the final workbook is due, so a missing
+    # workbook is an error rather than a reason to show last year's MLFs.
+    return _download_mlf_excel(url, xlsx_path, fy_label, "FINAL_MLF", required=True)
 

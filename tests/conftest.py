@@ -41,3 +41,21 @@ def fy_range(monkeypatch):
         monkeypatch.setattr(config, "FY_START", start)
         monkeypatch.setattr(config, "FY_END", end)
     return _set
+
+
+def write_mlf_workbook(path, sheets: dict) -> None:
+    """Write an AEMO-style MLF workbook: {sheet name: [rows]}, header rows contain "DUID"."""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    for name, rows in sheets.items():
+        ws = wb.create_sheet(name)
+        ws.append([f"{name} (synthetic)"])
+        ws.append([])
+        for row in rows:
+            ws.append(list(row))
+    wb.save(path)
+
+
+GEN_HEADER = ["Generator", "Voltage (kV)", "DUID", "Connection Point ID", "TNI code", "2026-27 MLF", "2025-26 MLF"]
