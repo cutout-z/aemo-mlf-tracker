@@ -4,12 +4,16 @@ Checks summary.csv and regional Excel workbooks for data integrity
 before committing to the repository. Exits non-zero on any failure.
 """
 
+import re
 import sys
+import warnings
 from pathlib import Path
 
 import pandas as pd
 
-OUTPUTS_DIR = Path(__file__).parent.parent / "outputs"
+PROJECT_ROOT = Path(__file__).parent.parent
+OUTPUTS_DIR = PROJECT_ROOT / "outputs"
+DATA_DIR = PROJECT_ROOT / "data"
 REGIONS = ["NSW1", "QLD1", "VIC1", "SA1", "TAS1"]
 REGION_NAMES = {"NSW1": "NSW", "QLD1": "QLD", "VIC1": "VIC", "SA1": "SA", "TAS1": "TAS"}
 
@@ -75,10 +79,112 @@ def validate():
                 f"{mismatch.sum()} rows have inconsistent YOY_CHANGE",
             )
 
+    check_current_fy(df)
+    check_against_final_workbook(df)
+
     # --- Regional Excel workbooks exist ---
     for region_id, name in REGION_NAMES.items():
         xlsx_path = OUTPUTS_DIR / f"{name}_mlf.xlsx"
         check(xlsx_path.exists(), f"{xlsx_path.name} does not exist")
+
+
+def _final_fy_cols(df):
+    """Final (non-draft, export) FY columns, oldest first."""
+    return sorted(c for c in df.columns if re.fullmatch(r"FY\d{2}-\d{2}", c))
+
+
+def check_current_fy(df, max_flat_share=0.25, min_coverage=0.5):
+    """The current FY must be filled in, and not be last year's values copied forward.
+
+    AEMO's MLFs move every year (about 1-7% of DUIDs are genuinely unchanged), so a
+    current FY that mostly equals the previous one, or is mostly blank, means the
+    final workbook was not applied.
+    """
+    fy_cols = _final_fy_cols(df)
+    if len(fy_cols) < 2:
+        return
+    cur, prev = (pd.to_numeric(df[c], errors="coerce") for c in fy_cols[-2:][::-1])
+    n_prev = int(prev.notna().sum())
+    if n_prev == 0:
+        return
+    coverage = cur.notna().sum() / n_prev
+    check(
+        coverage >= min_coverage,
+        f"{fy_cols[-1]} has values for {coverage:.0%} as many DUIDs as {fy_cols[-2]} "
+        f"(expected >= {min_coverage:.0%}) — final MLF workbook missing?",
+    )
+    both = cur.notna() & prev.notna()
+    if both.sum() > 0:
+        flat = ((cur - prev).abs() < 1e-9)[both].mean()
+        check(
+            flat <= max_flat_share,
+            f"{fy_cols[-1]} equals {fy_cols[-2]} for {flat:.0%} of DUIDs "
+            f"(expected <= {max_flat_share:.0%}) — previous FY copied forward?",
+        )
+
+
+def check_against_final_workbook(df, min_gen_match=0.95, min_bdu_match=0.9):
+    """The previous FY must agree with the comparison columns of AEMO's final workbook.
+
+    The cached final workbook for the current FY (data/final_mlf_<fy>.xlsx) also lists
+    last year's MLFs; batteries have separate Export and Import columns. A swapped
+    battery orientation or a wrong value-selection rule shows up here. AEMO's column
+    carries the latest revision, so a few mid-year changes legitimately differ.
+    Skipped when the workbook isn't cached.
+    """
+    fy_cols = _final_fy_cols(df)
+    if len(fy_cols) < 2:
+        return
+    cur_label = f"20{fy_cols[-1][2:]}"
+    prev_label = f"20{fy_cols[-2][2:]}"
+    xlsx = DATA_DIR / f"final_mlf_{cur_label}.xlsx"
+    if not xlsx.exists():
+        print(f"  (skipped workbook cross-check: {xlsx.name} not cached)")
+        return
+
+    sys.path.insert(0, str(PROJECT_ROOT))
+    from src.indicative import _parse_mlf_excel
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        aemo = _parse_mlf_excel(xlsx, prev_label, "PREV_MLF")
+    if aemo is None or aemo.empty:
+        check(False, f"Could not parse {prev_label} columns from {xlsx.name}")
+        return
+    aemo = aemo.set_index("DUID")
+    summary = df.set_index("DUID")
+    common = aemo.index.intersection(summary.index)
+    ours = pd.to_numeric(summary.loc[common, fy_cols[-2]], errors="coerce")
+    theirs = aemo.loc[common, "PREV_MLF"]
+    is_bdu = (
+        aemo.loc[common, "PREV_IMPORT_MLF"].notna()
+        if "PREV_IMPORT_MLF" in aemo.columns
+        else pd.Series(False, index=common)
+    )
+    compared = ours.notna() & theirs.notna()
+    match = (ours - theirs).abs() < 5e-5
+
+    gen = compared & ~is_bdu
+    if gen.sum() > 0:
+        share = match[gen].mean()
+        check(
+            share >= min_gen_match,
+            f"{fy_cols[-2]} matches AEMO's {prev_label} MLF for only {share:.0%} of "
+            f"{gen.sum()} generators (expected >= {min_gen_match:.0%})",
+        )
+
+    bdu = compared & is_bdu
+    import_col = f"{fy_cols[-2]} Import"
+    if bdu.sum() > 0 and import_col in summary.columns:
+        ours_imp = pd.to_numeric(summary.loc[common, import_col], errors="coerce")
+        imp_match = (ours_imp - aemo.loc[common, "PREV_IMPORT_MLF"]).abs() < 5e-5
+        share = (match & imp_match)[bdu].mean()
+        check(
+            share >= min_bdu_match,
+            f"{fy_cols[-2]} battery Export/Import MLFs match AEMO's {prev_label} columns for "
+            f"only {share:.0%} of {bdu.sum()} batteries (expected >= {min_bdu_match:.0%}) "
+            f"— export/import swapped?",
+        )
 
 
 if __name__ == "__main__":
