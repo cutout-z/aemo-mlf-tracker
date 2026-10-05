@@ -9,6 +9,23 @@ from . import config
 logger = logging.getLogger(__name__)
 
 
+def _orient_mlfs(detail_df: pd.DataFrame) -> pd.DataFrame:
+    """Add EXPORT_MLF / IMPORT_MLF columns with the right orientation per record.
+
+    GENERATOR records carry the generation MLF in TRANSMISSIONLOSSFACTOR
+    (SECONDARY_TLF, where present, is the pump/load side). BIDIRECTIONAL records
+    (batteries) are the other way round: TRANSMISSIONLOSSFACTOR is the Import
+    (load) MLF and SECONDARY_TLF the Export (generation) MLF — checked against the
+    Import/Export columns of AEMO's final MLF workbooks.
+    """
+    df = detail_df.copy()
+    secondary = df["SECONDARY_TLF"] if "SECONDARY_TLF" in df.columns else pd.Series(float("nan"), index=df.index)
+    is_bdu = df["DISPATCHTYPE"].eq("BIDIRECTIONAL") if "DISPATCHTYPE" in df.columns else pd.Series(False, index=df.index)
+    df["EXPORT_MLF"] = secondary.where(is_bdu, df["TRANSMISSIONLOSSFACTOR"])
+    df["IMPORT_MLF"] = df["TRANSMISSIONLOSSFACTOR"].where(is_bdu, secondary)
+    return df
+
+
 def extract_fy_mlfs(detail_df: pd.DataFrame) -> pd.DataFrame:
     """Extract one MLF value per DUID per financial year.
 
@@ -17,8 +34,9 @@ def extract_fy_mlfs(detail_df: pd.DataFrame) -> pd.DataFrame:
     for the majority of that FY.
 
     Returns: DataFrame with columns [DUID, REGIONID, CONNECTIONPOINTID,
-             STATIONID, FY, MLF]
+             STATIONID, FY, MLF, IMPORT_MLF] — MLF is the export (generation) MLF
     """
+    detail_df = _orient_mlfs(detail_df)
     rows = []
     for fy_start_year in range(config.FY_START, config.FY_END + 1):
         fy_begin = pd.Timestamp(f"{fy_start_year}-07-01")
@@ -46,7 +64,7 @@ def extract_fy_mlfs(detail_df: pd.DataFrame) -> pd.DataFrame:
                 # Fallback: first record that starts during this FY
                 best = group.sort_values("START_DATE").iloc[0]
 
-            import_mlf = best.get("SECONDARY_TLF")
+            import_mlf = best["IMPORT_MLF"]
             rows.append({
                 "DUID": duid,
                 "REGIONID": best["REGIONID"],
@@ -54,7 +72,7 @@ def extract_fy_mlfs(detail_df: pd.DataFrame) -> pd.DataFrame:
                 "STATIONID": best["STATIONID"],
                 "FY": fy_label,
                 "FY_START_YEAR": fy_start_year,
-                "MLF": best["TRANSMISSIONLOSSFACTOR"],
+                "MLF": best["EXPORT_MLF"],
                 "IMPORT_MLF": import_mlf if pd.notna(import_mlf) else None,
             })
 
