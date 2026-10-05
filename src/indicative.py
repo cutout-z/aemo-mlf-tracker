@@ -1,6 +1,7 @@
 """Download and parse AEMO's draft/indicative MLFs for the upcoming financial year."""
 
 import logging
+import re
 import time
 from pathlib import Path
 
@@ -34,6 +35,32 @@ SHEET_REGION_MAP = {
     "SA Gen": "SA1",
     "TAS Gen": "TAS1",
 }
+
+
+# AEMO sometimes lists a DUID twice when its MLF is revised after publication, e.g.
+# "Wandoan South Solar Farm 1 (as published on 01/04/2026)" followed by
+# "Wandoan South Solar Farm 1 (effective from 01/07/2026)". The dating note in the
+# Generator column says which row applies.
+_EFFECTIVE_FROM_RE = re.compile(r"effective from (\d{1,2}/\d{1,2}/\d{4})", re.IGNORECASE)
+_AS_PUBLISHED_RE = re.compile(r"as published on", re.IGNORECASE)
+
+
+def _row_priority(name, fy_begin: pd.Timestamp) -> tuple[int, pd.Timestamp]:
+    """Rank a workbook row among duplicates of its DUID (higher wins).
+
+    3: effective from a date on or before 1 July (latest such date wins)
+    2: no dating note
+    1: effective from a date after 1 July (a mid-year revision)
+    0: "as published on" — superseded by a later row
+    """
+    text = "" if pd.isna(name) else str(name)
+    match = _EFFECTIVE_FROM_RE.search(text)
+    if match:
+        effective = pd.to_datetime(match.group(1), dayfirst=True)
+        return (3 if effective <= fy_begin else 1), effective
+    if _AS_PUBLISHED_RE.search(text):
+        return 0, pd.Timestamp.min
+    return 2, pd.Timestamp.min
 
 
 def get_indicative_fy() -> tuple[int, str, str]:
@@ -107,6 +134,7 @@ def _parse_mlf_excel(xlsx_path: Path, fy_label: str, col_name: str) -> pd.DataFr
     """
     logger.info(f"Parsing MLF Excel for FY{fy_label} ({xlsx_path.name})...")
     import_col_name = col_name.replace("MLF", "IMPORT_MLF")
+    fy_begin = pd.Timestamp(f"{fy_label[:4]}-07-01")
 
     try:
         xls = pd.ExcelFile(xlsx_path, engine="openpyxl")
@@ -141,6 +169,7 @@ def _parse_mlf_excel(xlsx_path: Path, fy_label: str, col_name: str) -> pd.DataFr
             data = df.iloc[header_idx + 1:next_header].copy()
             data.columns = headers
             data = data.dropna(subset=["DUID"])
+            name_col = "Generator" if "Generator" in headers else headers[0]
 
             # Check if this is a BDU section with Import/Export MLF columns
             import_mlf_col = [c for c in headers if fy_label in c and "Import MLF" in c]
@@ -153,7 +182,8 @@ def _parse_mlf_excel(xlsx_path: Path, fy_label: str, col_name: str) -> pd.DataFr
                     export_mlf = pd.to_numeric(row[export_mlf_col[0]], errors="coerce")
                     import_mlf = pd.to_numeric(row[import_mlf_col[0]], errors="coerce")
                     if duid and (pd.notna(export_mlf) or pd.notna(import_mlf)):
-                        entry = {"DUID": duid, "REGIONID": region}
+                        entry = {"DUID": duid, "REGIONID": region,
+                                 "_NAME": row[name_col]}
                         if pd.notna(export_mlf):
                             entry[col_name] = export_mlf
                         if pd.notna(import_mlf):
@@ -169,14 +199,34 @@ def _parse_mlf_excel(xlsx_path: Path, fy_label: str, col_name: str) -> pd.DataFr
                     duid = str(row["DUID"]).strip()
                     mlf = pd.to_numeric(row[mlf_col[0]], errors="coerce")
                     if pd.notna(mlf) and duid:
-                        all_rows.append({"DUID": duid, "REGIONID": region, col_name: mlf})
+                        all_rows.append({"DUID": duid, "REGIONID": region, col_name: mlf,
+                                         "_NAME": row[name_col]})
 
     if not all_rows:
         logger.warning("No MLF data parsed")
         return None
 
     result = pd.DataFrame(all_rows)
-    result = result.drop_duplicates(subset="DUID", keep="first")
+
+    # Keep one row per DUID: the one that applies from 1 July per its dating note,
+    # otherwise the first listed.
+    priority = result["_NAME"].map(lambda n: _row_priority(n, fy_begin))
+    result["_PRIORITY"] = priority.str[0]
+    result["_EFFECTIVE"] = priority.str[1]
+    result["_ORDER"] = range(len(result))
+    kept = (
+        result.sort_values(["_PRIORITY", "_EFFECTIVE", "_ORDER"], ascending=[False, False, True])
+        .drop_duplicates(subset="DUID", keep="first")
+    )
+    first_listed = kept["DUID"].map(result.groupby("DUID")["_ORDER"].min())
+    revised = kept.loc[kept["_ORDER"] != first_listed, "DUID"]
+    if not revised.empty:
+        logger.info(f"Using the revised workbook row for: {', '.join(sorted(revised))}")
+    result = (
+        kept.sort_values("_ORDER")
+        .drop(columns=["_NAME", "_PRIORITY", "_EFFECTIVE", "_ORDER"])
+        .reset_index(drop=True)
+    )
 
     bdu_count = result[import_col_name].notna().sum() if import_col_name in result.columns else 0
     logger.info(f"Parsed {len(result)} MLFs for FY{fy_label} (col: {col_name}, {bdu_count} with import MLF)")
