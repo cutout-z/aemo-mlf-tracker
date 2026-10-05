@@ -257,7 +257,7 @@
 
 <section class="card mt-4 shell-dl">
   <div class="card-body flex flex-wrap items-center gap-2" id="downloads"></div>
-  <div class="card-foot" id="footer">Source: AEMO DUDETAILSUMMARY via MMSDM Archive</div>
+  <div class="card-foot" id="footer">Source: AEMO DUDETAILSUMMARY via MMSDM Archive; the latest year from AEMO’s final MLF publication wherever it lists the DUID</div>
 </section>
 
 </main>
@@ -388,7 +388,7 @@ function renderStats() {
     `Tiles cover live DUIDs in ${scope}; the retired toggle changes the tables only.`,
     counts[''] ? `${counts['']} live DUIDs have no fuel category in the source data: counted as "not stated", not offered as a filter.` : '',
     noRegion ? `${noRegion} live DUIDs have no region: they sit under All and on no region tab.` : '',
-    'AEMO publishes MLFs once a year: final in April, draft/indicative in October.',
+    'AEMO publishes MLFs once a year: a draft early in the year, then the final by 1 April, effective from 1 July.',
   ].filter(Boolean);
   document.getElementById('statsFoot').innerHTML = notes.map(n => `<span>${n}</span>`).join('<span class="hidden sm:inline" aria-hidden="true">·</span>');
 }
@@ -472,8 +472,8 @@ function renderOneTable(opts) {
   document.getElementById(titleId).textContent = `${titleText} (${unsortedRows.length})`;
   const nRet = unsortedRows.filter(r => r.STATUS === 'Retired').length;
   document.getElementById(sectionId.replace('Section', 'Foot')).innerHTML = [
-    'Source: AEMO DUDETAILSUMMARY via MMSDM Archive',
-    'MLFs are published annually: final in April, draft/indicative in October',
+    'Source: AEMO DUDETAILSUMMARY via MMSDM Archive; the latest year from AEMO’s final MLF publication wherever it lists the DUID',
+    'MLFs are published annually: a draft early in the year, the final by 1 April',
     `${unsortedRows.length} ${noun} shown (${showRetired ? `live and retired, ${nRet} retired` : 'live only'}), after the filters above`,
     `N/A = ${NA_MLF.charAt(0).toLowerCase() + NA_MLF.slice(1)}; in the change columns, no change in the file`,
     ...(draftCols.length ? ['Draft columns are indicative, not yet final'] : []),
@@ -794,7 +794,7 @@ if (typeof Papa === 'undefined') {
     const nLive = allData.filter(r => r.STATUS !== 'Retired').length;
     document.getElementById('footer').textContent =
       `${allData.length} DUIDs tracked (${Object.entries(types).sort((a, b) => b[1] - a[1]).map(([t, n]) => `${n} ${t}`).join(', ')}) · ${nLive} live, ${allData.length - nLive} retired · ` +
-      `${fyCols[0] || '?'} to ${fyCols[fyCols.length - 1] || '?'} · Source: AEMO DUDETAILSUMMARY via MMSDM Archive`;
+      `${fyCols[0] || '?'} to ${fyCols[fyCols.length - 1] || '?'} · Source: AEMO DUDETAILSUMMARY via MMSDM Archive; the latest year from AEMO’s final MLF publication wherever it lists the DUID`;
 
     document.getElementById('genLegend').innerHTML = heatLegend(false);
     document.getElementById('battLegend').innerHTML = heatLegend(true);   // only the battery table has import columns
