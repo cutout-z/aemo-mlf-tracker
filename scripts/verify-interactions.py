@@ -55,7 +55,8 @@ duid_min = min(r["DUID"] for r in live_gen if r["DUID"].strip())
 duid_max = max(r["DUID"] for r in live_gen if r["DUID"].strip())
 n_wind = sum(1 for r in live if r["FUEL_CATEGORY"] == "Wind")
 n_solar = sum(1 for r in live if r["FUEL_CATEGORY"] == "Solar")
-n_type = sum(1 for r in live if (r["DUID_TYPE"] or "Unknown") == "Unknown")
+TYPE_PICK = "Unknown" if any((r["DUID_TYPE"] or "Unknown") == "Unknown" for r in live) else "Scheduled Load"   # the metadata fix leaves no "Unknown" type; pick a type the data has
+n_type = sum(1 for r in live if (r["DUID_TYPE"] or "Unknown") == TYPE_PICK)
 n_retired = len(rows) - n_visible
 print(f"csv: {len(rows)} DUIDs · {n_visible} live ({n_retired} retired) · "
       f"generators {len(live_gen)} · batteries {len(live_batt)} · latest {latest}")
@@ -120,7 +121,8 @@ def expected_stats(code: str) -> tuple[list[list[str]], list[str]]:
     lv = [r for r in scope_rows if r["STATUS"] != "Retired"]
     where = "all regions" if code == "ALL" else REGIONS[code]
     lost = lambda v: f"{HALF_UP((1 - v) * 100, '0.1')}% lost"
-    pub = [(r, v) for r in lv if (v := num(r[latest])) is not None]
+    gu = [r for r in lv if (r["DUID_TYPE"] or "Unknown") == "Generator"]   # the MLF tiles read generating units only
+    pub = [(r, v) for r in gu if (v := num(r[latest])) is not None]
     if pub:
         avg = sum(v for _, v in pub) / len(pub)
         deep_r, deep_v = pub[0]
@@ -128,16 +130,16 @@ def expected_stats(code: str) -> tuple[list[list[str]], list[str]]:
             if v < deep_v:
                 deep_r, deep_v = r, v
         t2 = [str(HALF_UP(avg, "0.0001")), f"Average MLF, {latest}",
-              f"{HALF_UP((1 - avg) * 100, '0.1')}% of price lost · simple mean of {len(pub)} live DUIDs"]
+              f"{HALF_UP((1 - avg) * 100, '0.1')}% of price lost · simple mean of {len(pub)} live generating units"]
         t3 = [str(HALF_UP(deep_v, "0.0001")), f"Deepest loss, {latest}",
               f"{deep_r['DUID']} · {deep_r['STATION_NAME'] or 'station not stated'} · {lost(deep_v)}"]
     else:
         t2 = ["N/A", f"Average MLF, {latest}", "no MLF published for this scope"]
         t3 = ["N/A", f"Deepest loss, {latest}", "no MLF published for this scope"]
-    yoy = [v for r in lv if (v := num(r["YOY_CHANGE"])) is not None]
+    yoy = [v for r in gu if (v := num(r["YOY_CHANGE"])) is not None]
     down, up = sum(v < 0 for v in yoy), sum(v > 0 for v in yoy)
     t4 = ([str(down), f"Worse than {FY_STD[-2]}",
-           f"of {len(yoy)} DUIDs with both years · {up} better · {len(yoy) - down - up} unchanged"] if yoy else
+           f"of {len(yoy)} generating units with both years · {up} better · {len(yoy) - down - up} unchanged"] if yoy else
           ["N/A", f"Worse than {FY_STD[-2]}", "no year-on-year change in this scope"])
     t1 = [str(len(lv)), "DUIDs live", f"of {len(scope_rows)} in the file for {where} · {len(scope_rows) - len(lv)} retired"]
     counts: dict[str, int] = {}
@@ -235,9 +237,9 @@ with sync_playwright() as pw:
     check(total() == n_wind, f"fuel=Wind filters to {n_wind}", f"{total()} rows")
     pg.select_option("#fuelFilter", "")
     pg.wait_for_timeout(400)
-    pg.select_option("#typeFilter", "Unknown")
+    pg.select_option("#typeFilter", TYPE_PICK)
     pg.wait_for_timeout(500)
-    check(total() == n_type, f"type=Unknown filters to {n_type}", f"{total()} rows")
+    check(total() == n_type, f"type={TYPE_PICK} filters to {n_type}", f"{total()} rows")
     pg.select_option("#typeFilter", "")
     pg.wait_for_timeout(400)
     pg.fill("#search", top["DUID"])

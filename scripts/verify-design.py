@@ -316,7 +316,7 @@ def main() -> int:
         pg.evaluate("document.getElementById('showRetired').click()")
         pg.wait_for_timeout(1000)
         drawn_retd = pg.eval_on_selector_all("#battThead tr:last-child th", "e => e.map(x => x.innerText.trim())")
-        check(len(drawn_retd) > len(drawn["batt"]),
+        check(len(drawn_retd) > len(drawn["batt"]) or blank_batt_all == blank_batt,   # superseded batteries merge into their successor, so no column may be retired-only
               "turning on retired DUIDs brings back the columns only retired batteries fill",
               f"{len(drawn['batt'])} -> {len(drawn_retd)} columns; still hidden {blank_batt_all}")
         check(all(c not in drawn_retd for c in blank_batt_all),
