@@ -11,7 +11,7 @@ from . import config
 from .download import download_dudetailsummary, get_latest_available_month
 from .generators import fetch_generator_metadata
 from .indicative import fetch_mlf_workbooks, get_indicative_fy
-from .analyse import extract_fy_mlfs, build_summary
+from .analyse import extract_fy_mlfs, build_summary, find_superseded
 from .excel_output import generate_all_workbooks
 
 logging.basicConfig(
@@ -88,7 +88,8 @@ def run(full_refresh: bool = False):
     final_excel, indicative = fetch_mlf_workbooks(cache_dir, detail_df, full_refresh=full_refresh)
 
     # Step 7: Build summary (wide format with metadata)
-    summary = build_summary(fy_mlfs, generators, indicative, final_excel, station_names)
+    summary = build_summary(fy_mlfs, generators, indicative, final_excel, station_names,
+                            successors=find_superseded(detail_df))
 
     # Step 8: Save outputs
     summary_path.parent.mkdir(parents=True, exist_ok=True)

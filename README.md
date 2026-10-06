@@ -6,7 +6,8 @@ Automated tracker for Marginal Loss Factors (MLFs) across all generator assets i
 
 ## What it does
 
-- Downloads AEMO's DUDETAILSUMMARY table from the MMSDM archive (complete MLF history in a single ~125KB file)
+- Downloads AEMO's DUDETAILSUMMARY table from the MMSDM archive (complete MLF history in a single ~380 KB zip)
+- Reads AEMO's final MLF workbook for the current FY (published by 1 April, before DUDETAILSUMMARY carries the year) and, when available, the draft workbook for the next FY
 - Resolves generator metadata from three AEMO sources (see [DUID identification](#duid-identification) below)
 - Extracts per-generator MLFs across 12 financial years (FY15-16 to FY26-27)
 - Computes year-on-year changes and flags degradation
@@ -16,18 +17,19 @@ Automated tracker for Marginal Loss Factors (MLFs) across all generator assets i
 
 | | |
 |---|---|
-| **DUIDs tracked** | 667 across all 5 NEM regions |
+| **DUIDs tracked** | ~720 across all 5 NEM regions, ~650 of them live (2026-08 data; the page footer gives the current count) |
 | **Regions** | NSW, QLD, VIC, SA, TAS |
-| **Asset types** | Generator, Network Load, Ancillary Service, Demand Response |
+| **Asset types** | Generator (batteries included), Scheduled Load, Network Load, Dummy Generator, Interconnector — see [Asset type labels](#asset-type-labels) |
 | **Fuel types** | Solar, Wind, Hydro, Fossil, Battery, Other Renewable |
 | **History** | FY15-16 to FY26-27 (12 years) |
-| **Update frequency** | Annual/draft-annual NAS lane refresh (final MLFs in April, draft/indicative MLFs in October) |
+| **Update frequency** | NAS lane refresh. AEMO publishes the final MLFs for the next FY by 1 April (effective 1 July) and the draft early in March (2 March 2026 for 2026-27) |
 
 ## Dashboard features
 
 - **All Regions** tab with region dropdown filter, plus individual state tabs
-- **Type filter** — filter by Generator, Network Load, Ancillary Service, Demand Response
-- Search by DUID or station name
+- **Type filter** — one option per asset type present in the data
+- **Stat tiles** — the Average MLF, Deepest loss and Worse-than tiles read generating units only (DUID type Generator, batteries included); loads, load points, dummy generators and Basslink stay in the tables
+- Search by DUID or station name (a battery's DUID from before its bidirectional re-registration finds its current row)
 - Sort by any column (click headers)
 - Filter by fuel type
 - Heatmap colouring (red = low MLF, green = high)
@@ -36,10 +38,10 @@ Automated tracker for Marginal Loss Factors (MLFs) across all generator assets i
 
 ## DUID identification
 
-AEMO's MLF data (DUDETAILSUMMARY) covers 667 DUIDs spanning over a decade, but no single AEMO reference file identifies all of them. The pipeline resolves metadata from three sources in priority order:
+AEMO's MLF data (DUDETAILSUMMARY) covers ~750 DUIDs spanning over a decade, but no single AEMO reference file identifies all of them. The pipeline resolves metadata from three sources in priority order:
 
 ### Tier 1 — NEM Registration and Exemption List (current participants)
-The primary source for currently registered assets. Provides station name, fuel type, technology, and registered capacity for ~564 generators.
+The primary source for currently registered assets. Provides station name, fuel type, technology, registered capacity and Dispatch Type for ~580 units (generating, bidirectional and scheduled-load units; Dispatch Type "Load" is labelled **Scheduled Load**).
 
 Two additional sheets in the same file extend coverage:
 - **Ancillary Services** — DUIDs registered for FCAS markets
@@ -49,13 +51,17 @@ Two additional sheets in the same file extend coverage:
 Many DUIDs in the historical MLF record belong to assets that have since been **deregistered** and no longer appear in the current Registration List. The MMSDM archive (the same source used for MLF data) publishes two participant registration tables that cover all historical registrations:
 
 - **STATION** — maps `STATIONID` → full station name (e.g. `CALLIDE` → `Callide Power Station`)
-- **GENUNITS** — maps DUID → fuel type (`CO2E_ENERGY_SOURCE`), registered capacity, and dispatch type
+- **GENUNITS** — one row per *generating set*: fuel type (`CO2E_ENERGY_SOURCE`), registered capacity and set type (`GENSETTYPE`: GENERATOR, BIDIRECTIONAL or LOAD)
+- **DUALLOC** — allocates generating sets to DUIDs. A set ID is not a DUID: QUERIVE1 is the sets QUERIVE1 + QUERIVE2, so its capacity is their sum (48 MW). Each DUID's latest allocation is used.
 
-This tier resolves ~445 additional DUIDs not found in Tier 1, reducing unknowns from ~140 to ~12.
+This tier resolves the DUIDs not in Tier 1 (~150 in the 2026-08 data); none are left Unknown.
 
 ### Tier 3 — Fallback pattern matching
 For the small remainder:
-- DUIDs with an `NL` suffix (e.g. `CALLNL4`, `MURAYNL1`) are labelled **Network Load** — these are large industrial loads at power stations used as reference points in MLF calculations, not generators.
+For DUIDs the registration list omits, AEMO's naming conventions set the type (they win over GENUNITS, which lists these as GENERATOR):
+- An `NL` suffix (e.g. `CALLNL4`, `MURAYNL1`) → **Network Load**: a load point at a power station used as a reference in MLF calculations, not a generator.
+- A `DG_` prefix (`DG_NSW1` …) → **Dummy Generator**: AEMO's regional market-system units.
+- A `BLNK` prefix (`BLNKTAS`, `BLNKVIC`) → **Interconnector**: Basslink.
 - Any DUID not matched by Tiers 1–2 falls back to its abbreviated `STATIONID` as the station name and is labelled **Unknown**.
 
 ### Asset type labels
@@ -63,11 +69,17 @@ Every DUID in the dashboard carries a type badge:
 
 | Badge | Meaning |
 |---|---|
-| Generator | Registered generating unit (current or historical) |
-| Network Load | Industrial load reference node used in MLF calculations |
-| Ancillary Service | FCAS-registered asset |
+| Generator | Registered generating or bidirectional (battery) unit, current or historical |
+| Scheduled Load | A load with its own MLF: pumps (SHPUMP, SNOWYP, PUMP1/2), the load side of dual-MLF units (KIDSPHL1/2), auxiliary loads (GPWFEL1/GPWFWL1), a battery's separate load DUID (KEPBL1) |
+| Network Load | Load point at a power station used as a reference in MLF calculations |
+| Dummy Generator | AEMO's `DG_<region>` market-system unit |
+| Interconnector | Basslink (`BLNKTAS`, `BLNKVIC`) |
+| Ancillary Service | FCAS-registered asset (from the registration list's Ancillary Services sheet) |
 | Demand Response | Wholesale demand response unit |
 | Unknown | In MLF data but not identifiable in any AEMO reference file |
+
+### Retired and superseded DUIDs
+A DUID with an MLF in an earlier year but none for the current FY (nor in the next FY's draft) is **Retired**. Batteries that AEMO re-registered as bidirectional units in 2024-25 under a new DUID (HPRG1 → HPR1, CAPBES1G → CAPBES1, …) are merged: the new DUID's row carries the old DUID's earlier MLFs and names it in `PREVIOUS_DUIDS`.
 
 ## Run locally
 
@@ -79,7 +91,7 @@ python -m src.main --full-refresh  # re-download everything
 
 ## Automation
 
-Production updates run on the **NAS runner** (QNAP `ai-wif-runner` container) via the `nas-job aemo-mlf-tracker` lane; see [`deploy/README.md`](deploy/README.md) for details. A QNAP scheduled task fires the lane on AEMO's final (April) and draft/indicative (October) MLF publication cadence. The lane intentionally uses `--full-refresh` because the source footprint is small and AEMO publishes final/draft MLF data on an annual cadence.
+Production updates run on the **NAS runner** (QNAP `ai-wif-runner` container) via the `nas-job aemo-mlf-tracker` lane; see [`deploy/README.md`](deploy/README.md) for details. A QNAP scheduled task fires the lane around AEMO's publications: the final MLFs (by 1 April) and the DUDETAILSUMMARY load of the new year (from July). The draft for the next FY appears early in March and is replaced by the final in April, so only a run between the two shows a draft column. The lane intentionally uses `--full-refresh` because the source footprint is small and AEMO publishes final/draft MLF data on an annual cadence.
 
 The lane commits as `aemo-nas-bot` and pushes its updated outputs. GitHub Actions is kept as a manual verification/fallback runner. GitHub Pages deploys on those pushes.
 
@@ -106,4 +118,6 @@ If any check fails, the NAS lane or manual fallback workflow exits before commit
 | [DUDETAILSUMMARY](https://nemweb.com.au/Data_Archive/Wholesale_Electricity/MMSDM/) | MLF values and date ranges for all DUIDs |
 | [NEM Registration List](https://www.aemo.com.au/-/media/Files/Electricity/NEM/Participant_Information/NEM-Registration-and-Exemption-List.xls) | Station name, fuel type, capacity (current participants) |
 | [MMSDM STATION table](https://nemweb.com.au/Data_Archive/Wholesale_Electricity/MMSDM/) | Full station names for historical/deregistered assets |
-| [MMSDM GENUNITS table](https://nemweb.com.au/Data_Archive/Wholesale_Electricity/MMSDM/) | Fuel type and capacity for historical/deregistered assets |
+| [MMSDM GENUNITS table](https://nemweb.com.au/Data_Archive/Wholesale_Electricity/MMSDM/) | Fuel type, capacity and set type for historical/deregistered assets |
+| [MMSDM DUALLOC table](https://nemweb.com.au/Data_Archive/Wholesale_Electricity/MMSDM/) | Which generating sets make up each DUID |
+| AEMO final / draft MLF workbooks (aemo.com.au, Loss factors and regional boundaries; URL patterns in `src/indicative.py`) | Current-FY MLFs from 1 April; next-FY draft MLFs (March) |

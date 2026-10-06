@@ -93,6 +93,13 @@ def _build_fy_column_order(fy_cols: list[str], import_fy_cols: list[str]) -> lis
     return ordered
 
 
+def _sort_latest_first(data: pd.DataFrame, fy_cols: list[str]) -> pd.DataFrame:
+    """Worst first by the latest FINAL year. A draft column sorts after it by name ("FY27-28
+    (Draft)" > "FY26-27"), and sorting on it ordered the published table by indicative values."""
+    final = [c for c in fy_cols if "(Draft)" not in c and c in data.columns]
+    return data.sort_values(final[-1], na_position="last") if final else data
+
+
 def _write_mlf_table(wb: Workbook, data: pd.DataFrame, region_name: str,
                      fy_cols: list[str], import_fy_cols: list[str] | None = None):
     """Sheet 1: Clean MLF table — all DUIDs with FY columns."""
@@ -117,9 +124,7 @@ def _write_mlf_table(wb: Workbook, data: pd.DataFrame, region_name: str,
         cell.border = THIN_BORDER
 
     # Sort by latest MLF ascending (worst first)
-    sort_col = fy_cols[-1] if fy_cols else None
-    if sort_col and sort_col in data.columns:
-        data = data.sort_values(sort_col, na_position="last")
+    data = _sort_latest_first(data, fy_cols)
 
     # Write data
     for row_idx, (_, row) in enumerate(data.iterrows(), 2):
@@ -199,9 +204,7 @@ def _write_heatmap(wb: Workbook, data: pd.DataFrame, region_name: str,
         cell.alignment = Alignment(horizontal="center")
         cell.border = THIN_BORDER
 
-    sort_col = fy_cols[-1] if fy_cols else None
-    if sort_col and sort_col in data.columns:
-        data = data.sort_values(sort_col, na_position="last")
+    data = _sort_latest_first(data, fy_cols)
 
     num_rows = len(data)
     for row_idx, (_, row) in enumerate(data.iterrows(), 2):
@@ -214,9 +217,13 @@ def _write_heatmap(wb: Workbook, data: pd.DataFrame, region_name: str,
             cell.alignment = Alignment(horizontal="center")
             cell.border = THIN_BORDER
 
-    # Apply colour scale: red (low MLF = bad) → yellow → green (high MLF = good)
+    # Apply colour scale: red (low MLF = bad) → yellow → green (high MLF = good).
+    # Export (generation) columns only: an Import MLF is the factor on the price a battery PAYS to
+    # charge, so a low one is cheaper charging, not a loss, and it gets no red-to-green scale.
     if num_rows > 0:
-        for col_idx in range(2, 2 + len(all_fy_cols)):
+        for col_idx, fy in enumerate(all_fy_cols, 2):
+            if "Import" in fy:
+                continue
             col_letter = get_column_letter(col_idx)
             cell_range = f"{col_letter}2:{col_letter}{num_rows + 1}"
             ws.conditional_formatting.add(
@@ -248,10 +255,11 @@ def _write_movers(wb: Workbook, data: pd.DataFrame, region_name: str):
         ws.cell(row=1, column=1, value="No YoY data available")
         return
 
-    # Top 20 degrading (most negative YoY change)
-    degrading = valid.nsmallest(20, "YOY_CHANGE")
-    # Top 20 improving (most positive YoY change)
-    improving = valid.nlargest(20, "YOY_CHANGE")
+    # Top 20 degrading (most negative YoY change) and top 20 improving (most positive). A region
+    # with fewer than 20 movers each way lists fewer: TAS used to fill "Most Degraded" with
+    # unchanged (0.0000) and improved units.
+    degrading = valid[valid["YOY_CHANGE"] < 0].nsmallest(20, "YOY_CHANGE")
+    improving = valid[valid["YOY_CHANGE"] > 0].nlargest(20, "YOY_CHANGE")
 
     headers = ["DUID", "Station", "Fuel Type", "Latest MLF", "Prev MLF",
                "YoY Change", "YoY %"]

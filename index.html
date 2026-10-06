@@ -317,8 +317,11 @@ function getFiltered() {
   if (!showRetired) rows = rows.filter(r => r.STATUS !== 'Retired');
   if (type) rows = rows.filter(r => (r.DUID_TYPE || 'Unknown') === type);
   if (fuel) rows = rows.filter(r => r.FUEL_CATEGORY === fuel);
+  // PREVIOUS_DUIDS: a battery's DUID before AEMO re-registered it as a bidirectional unit (HPRG1 is now
+  // HPR1); its history is merged into the new row, so the old ID must still find it.
   if (search) rows = rows.filter(r =>
     (r.DUID || '').toLowerCase().includes(search) ||
+    (r.PREVIOUS_DUIDS || '').toLowerCase().includes(search) ||
     (r.STATION_NAME || '').toLowerCase().includes(search)
   );
   return rows;
@@ -347,13 +350,20 @@ function renderStats() {
   const latest = fyCols[fyCols.length - 1];
   const prior = fyCols[fyCols.length - 2];
 
+  // The three MLF tiles read generating units only (DUID_TYPE "Generator", batteries included). A load's
+  // MLF is a factor on the price it pays, and AEMO's dummy generators and Basslink are market-system
+  // units at 1.0000, so averaging them in with generators moved the mean and could name a pump as the
+  // deepest loss. They stay in the tables with their type badge.
+  const genRows = rows.filter(r => (r.DUID_TYPE || 'Unknown') === 'Generator');
+  const nonGen = rows.length - genRows.length;
+
   // Average and deepest loss for the latest financial year (simple mean, not MW-weighted).
-  const pub = rows.map(r => ({ r, v: parseFloat(r[latest]) })).filter(x => !isNaN(x.v));
+  const pub = genRows.map(r => ({ r, v: parseFloat(r[latest]) })).filter(x => !isNaN(x.v));
   const avg = pub.length ? pub.reduce((a, x) => a + x.v, 0) / pub.length : NaN;
   const deepest = pub.length ? pub.reduce((m, x) => x.v < m.v ? x : m) : null;
 
   // Year-on-year, from the pipeline's own YOY_CHANGE column (latest published MLF less the one before).
-  const yoy = rows.map(r => parseFloat(r.YOY_CHANGE)).filter(v => !isNaN(v));
+  const yoy = genRows.map(r => parseFloat(r.YOY_CHANGE)).filter(v => !isNaN(v));
   const down = yoy.filter(v => v < 0).length, up = yoy.filter(v => v > 0).length, flat = yoy.length - down - up;
 
   const tile = (value, label, scopeText, title) =>
@@ -362,12 +372,12 @@ function renderStats() {
   const tiles = [
     tile(rows.length, 'DUIDs live', `of ${scopeRows.length} in the file for ${scope} · ${scopeRows.length - rows.length} retired`),
     tile(isNaN(avg) ? 'N/A' : avg.toFixed(4), `Average MLF, ${latest}`,
-         isNaN(avg) ? 'no MLF published for this scope' : `${pct(avg)} of price lost · simple mean of ${pub.length} live DUIDs`),
+         isNaN(avg) ? 'no MLF published for this scope' : `${pct(avg)} of price lost · simple mean of ${pub.length} live generating units`),
     tile(deepest ? deepest.v.toFixed(4) : 'N/A', `Deepest loss, ${latest}`,
          deepest ? `${deepest.r.DUID} · ${deepest.r.STATION_NAME || 'station not stated'} · ${pct(deepest.v)} lost` : 'no MLF published for this scope',
          deepest ? `${deepest.r.DUID} — ${deepest.r.STATION_NAME || ''}` : ''),
     tile(yoy.length ? down : 'N/A', `Worse than ${prior}`,
-         yoy.length ? `of ${yoy.length} DUIDs with both years · ${up} better · ${flat} unchanged` : 'no year-on-year change in this scope'),
+         yoy.length ? `of ${yoy.length} generating units with both years · ${up} better · ${flat} unchanged` : 'no year-on-year change in this scope'),
   ].join('');
 
   // Fuel breakdown. A blank FUEL_CATEGORY is counted as "Not stated" here and is never a filter option.
@@ -387,6 +397,7 @@ function renderStats() {
   const noRegion = rows.filter(r => !r.REGIONID).length;
   const notes = [
     `Tiles cover live DUIDs in ${scope}; the retired toggle changes the tables only.`,
+    nonGen ? `The MLF tiles count generating units only: ${nonGen} live loads, network load points, dummy generators and interconnector units are listed in the tables but left out.` : '',
     counts[''] ? `${counts['']} live DUIDs have no fuel category in the source data: counted as "not stated", not offered as a filter.` : '',
     noRegion ? `${noRegion} live DUIDs have no region: they sit under All and on no region tab.` : '',
     'AEMO publishes MLFs once a year: a draft early in the year, then the final by 1 April, effective from 1 July.',

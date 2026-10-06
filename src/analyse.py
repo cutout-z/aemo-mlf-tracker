@@ -5,6 +5,7 @@ import logging
 import pandas as pd
 
 from . import config
+from .generators import type_from_name
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,31 @@ def extract_fy_mlfs(detail_df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
+def find_superseded(detail_df: pd.DataFrame, window_days: int = 60) -> dict[str, str]:
+    """Map each battery DUID that AEMO replaced by a BIDIRECTIONAL DUID to its successor.
+
+    In 2024-25 AEMO re-registered batteries as bidirectional units under new DUIDs (HPRG1 ->
+    HPR1, CAPBES1G -> CAPBES1, ...). The old GENERATOR DUID's records end a few weeks after the
+    new one's first record, at the same STATIONID. A GENERATOR DUID whose last record ends
+    within `window_days` either side of a bidirectional DUID's first record at its station is
+    taken as superseded by it; one that matches more than one is left alone.
+    """
+    if detail_df is None or detail_df.empty or "DISPATCHTYPE" not in detail_df.columns:
+        return {}
+    spans = detail_df.sort_values("START_DATE").groupby("DUID").agg(
+        STATIONID=("STATIONID", "last"), FIRST=("START_DATE", "min"), LAST=("END_DATE", "max"),
+        BDU=("DISPATCHTYPE", lambda s: bool(s.eq("BIDIRECTIONAL").any())),
+    )
+    bdus, gens = spans[spans["BDU"]], spans[~spans["BDU"]]
+    window = pd.Timedelta(days=window_days)
+    pairs = {}
+    for old, g in gens.iterrows():
+        match = bdus[(bdus["STATIONID"] == g["STATIONID"]) & ((g["LAST"] - bdus["FIRST"]).abs() <= window)]
+        if len(match) == 1:
+            pairs[old] = match.index.tolist()[0]
+    return pairs
+
+
 def compute_yoy_changes(fy_mlfs: pd.DataFrame) -> pd.DataFrame:
     """Compute year-on-year MLF changes for each DUID.
 
@@ -115,7 +141,8 @@ def compute_yoy_changes(fy_mlfs: pd.DataFrame) -> pd.DataFrame:
 def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
                   indicative: pd.DataFrame | None = None,
                   final_excel: pd.DataFrame | None = None,
-                  station_names: "pd.Series | None" = None) -> pd.DataFrame:
+                  station_names: "pd.Series | None" = None,
+                  successors: "dict[str, str] | None" = None) -> pd.DataFrame:
     """Build the master summary: pivot FYs to columns, merge generator metadata.
 
     Returns a wide-format DataFrame: one row per DUID with FY columns.
@@ -123,6 +150,9 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
     - final_excel: DataFrame [DUID, FINAL_MLF] from AEMO's published final Excel.
       When provided, overrides the current FY column, which is otherwise blank
       until DUDETAILSUMMARY carries records effective from 1 July.
+    - successors: {old DUID: new DUID} from find_superseded. The old DUID's history is merged
+      into the new DUID's row (for FYs the new one has no MLF of its own) and the old row is
+      dropped; PREVIOUS_DUIDS on the new row names it.
     - indicative: DataFrame [DUID, INDICATIVE_MLF] for the *next* FY draft column.
     """
     df = compute_yoy_changes(fy_mlfs)
@@ -144,6 +174,23 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
     result = meta.join(pivot)
     if import_pivot is not None:
         result = result.join(import_pivot)
+
+    # One row per battery: a superseded DUID's export history continues in its successor's row.
+    # Kept as two rows, both showed e.g. FY24-25 (HPRG1 and HPR1), and the live battery started
+    # its history in 2024.
+    pairs = {o: n for o, n in (successors or {}).items() if o in result.index and n in result.index}
+    if pairs:
+        export_cols = list(pivot.columns)
+        previous: dict[str, list[str]] = {}
+        for old, new in sorted(pairs.items()):
+            fill = result.loc[new, export_cols].isna() & result.loc[old, export_cols].notna()
+            cols = list(fill[fill].index)
+            if cols:
+                result.loc[new, cols] = result.loc[old, cols].values
+            previous.setdefault(new, []).append(old)
+        result["PREVIOUS_DUIDS"] = result.index.map(lambda d: " ".join(previous.get(d, [])) or None)
+        result = result.drop(index=list(pairs))
+        logger.info(f"Merged {len(pairs)} superseded battery DUIDs into their successors")
 
     # The current FY column always exists, even before AEMO has loaded any record
     # for it, so it is filled from the final workbook or left blank — the YoY
@@ -169,10 +216,17 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
                     .set_index("DUID")["REGION"]
                     .to_dict()
                 )
-            stubs = pd.DataFrame(
-                {"REGIONID": pd.Series(new_duids).map(gen_region).values},
-                index=pd.Index(new_duids, name="DUID"),
+            # Region from the registration list, else from the workbook sheet the DUID is listed
+            # on: units the registration list omits (the Kidston pump side KIDSPHL1/2, the Golden
+            # Plains auxiliary loads) were otherwise left with no region and on no region tab.
+            sheet_region = (
+                final_excel.drop_duplicates("DUID").set_index("DUID")["REGIONID"]
+                if "REGIONID" in final_excel.columns else pd.Series(dtype=object)
             )
+            new_index = pd.Index(new_duids, name="DUID")
+            region = new_index.map(gen_region).to_series(index=new_index)
+            region = region.where(region.notna(), new_index.map(sheet_region).to_series(index=new_index))
+            stubs = pd.DataFrame({"REGIONID": region.values}, index=new_index)
             result = pd.concat([result, stubs])
             logger.info(
                 f"Added {len(new_duids)} stub rows for final-Excel-only DUIDs "
@@ -246,8 +300,15 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
         if "INDICATIVE_IMPORT_MLF" in indicative.columns:
             draft_import_col = f"{draft_col} Import"
             join_cols["INDICATIVE_IMPORT_MLF"] = draft_import_col
-        ind = indicative.set_index("DUID")[list(join_cols.keys())].rename(columns=join_cols)
-        result = result.join(ind, how="left")
+        ind = indicative.drop_duplicates("DUID").set_index("DUID")
+        # A DUID that is only in the draft (a unit due to connect next FY) gets a row of its own,
+        # with the region of the draft sheet that lists it; a left join used to drop it.
+        draft_only = ind.index.difference(result.index)
+        if len(draft_only):
+            region = ind.loc[draft_only, "REGIONID"] if "REGIONID" in ind.columns else None
+            result = pd.concat([result, pd.DataFrame({"REGIONID": region}, index=draft_only.rename("DUID"))])
+            logger.info(f"Added {len(draft_only)} rows for DUIDs only in the draft workbook")
+        result = result.join(ind[list(join_cols.keys())].rename(columns=join_cols), how="left")
         logger.info(f"Added indicative column '{draft_col}' ({indicative['DUID'].nunique()} DUIDs)")
 
     # Merge generator/participant metadata if available
@@ -262,9 +323,6 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
     result = result.reset_index()
 
     # --- Fallback labelling for DUIDs not in any registration sheet ---
-    import re as _re
-    _nl_pattern = _re.compile(r"NL\d*$", _re.IGNORECASE)
-
     # Enrich STATION_NAME using the MMSDM STATION table (proper full names)
     # Apply to ALL rows so even registered generators that have abbreviated
     # station IDs as a fallback get the full name.
@@ -290,31 +348,28 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
         mask_no_name = result["STATION_NAME"].isna() | (result["STATION_NAME"] == "")
         result.loc[mask_no_name, "STATION_NAME"] = result.loc[mask_no_name, "STATIONID"]
 
-    # Infer DUID_TYPE from DUID suffix if still missing
+    # Infer DUID_TYPE from AEMO's naming conventions (…NL1, DG_…, BLNK…) if still missing
+    _infer_type = lambda duid: type_from_name(duid) or "Unknown"
     if "DUID_TYPE" in result.columns:
         mask_no_type = result["DUID_TYPE"].isna() | (result["DUID_TYPE"] == "")
         if mask_no_type.any():
-            def _infer_type(duid):
-                d = str(duid)
-                if _nl_pattern.search(d):
-                    return "Network Load"
-                return "Unknown"
             result.loc[mask_no_type, "DUID_TYPE"] = result.loc[mask_no_type, "DUID"].map(_infer_type)
     else:
-        result["DUID_TYPE"] = result["DUID"].map(
-            lambda d: "Network Load" if _nl_pattern.search(str(d)) else "Unknown"
-        )
+        result["DUID_TYPE"] = result["DUID"].map(_infer_type)
 
-    # Flag retired DUIDs: have historical data but nothing in the two most recent FYs.
-    # These are typically old G-suffix battery dispatch DUIDs that AEMO replaced with
-    # BIDIRECTIONAL registration DUIDs during 2024.
+    # Flag retired DUIDs: an MLF in some earlier FY but none for the current FY (and none in the
+    # draft for the next). The current FY column is complete whenever it exists — from the final
+    # workbook (required from April until DUDETAILSUMMARY carries the year) or from records
+    # effective from 1 July — so a DUID AEMO publishes no current MLF for has left the market.
+    # Looking at the two latest FYs instead kept units that closed early in the previous FY
+    # "Active" for a year (WESTCBT1 and BBASEHOS ended 15/07/2025, CHPSTWF1 30/09/2025).
     if len(fy_cols) >= 2:
-        recent_cols = fy_cols[-2:]  # FY25-26 and FY26-27
-        historic_cols = fy_cols[:-2]
-        has_recent = result[recent_cols].notna().any(axis=1)
-        has_historic = result[historic_cols].notna().any(axis=1) if historic_cols else pd.Series(False, index=result.index)
+        current_cols = [fy_cols[-1]] + ([draft_col] if draft_col else [])
+        historic_cols = fy_cols[:-1]
+        has_current = result[current_cols].notna().any(axis=1)
+        has_historic = result[historic_cols].notna().any(axis=1)
         result["STATUS"] = "Active"
-        result.loc[has_historic & ~has_recent, "STATUS"] = "Retired"
+        result.loc[has_historic & ~has_current, "STATUS"] = "Retired"
     else:
         result["STATUS"] = "Active"
 

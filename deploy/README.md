@@ -20,7 +20,7 @@ in the 2026-09 cleanup) with the lane's `PIPELINE_ARGS`:
 
 | Lane | `PIPELINE_ARGS` | Purpose |
 | --- | --- | --- |
-| Annual MLF refresh | `--full-refresh` | Refresh final MLFs in April and draft/indicative MLFs in October. |
+| Annual MLF refresh | `--full-refresh` | Refresh after AEMO's final MLFs (by 1 April) and the new year's DUDETAILSUMMARY load (July). AEMO's draft for the next FY is published early in March (2 March 2026 for 2026-27), so only a run in March shows a draft column; an October run finds no draft. |
 
 The lane registry, cadence windows and report paths live in
 `tools/nas-runner/configs/brain-ops.nas.toml` (the NAS runner tooling).
