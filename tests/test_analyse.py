@@ -154,3 +154,18 @@ def test_workbook_only_duid_takes_region_from_its_sheet(fy_range):
     assert summary.loc["KIDSPHL1", "REGIONID"] == "QLD1"
     assert summary.loc["SHPUMP", "REGIONID"] == "NSW1"
     assert summary.loc["KIDSPHL1", "FY26-27"] == pytest.approx(1.0394)
+
+
+# --- DUIDs only in the draft workbook --------------------------------------------
+
+def test_draft_only_duid_gets_a_row(fy_range):
+    fy_range(2025, 2026)
+    fy = extract_fy_mlfs(detail_rows(("OTHER1", "2026-07-01", OPEN_ENDED, 0.95)))
+    draft = pd.DataFrame({"DUID": ["OTHER1", "NEWBESS1"], "REGIONID": ["NSW1", "VIC1"],
+                          "INDICATIVE_MLF": [0.96, 0.97], "INDICATIVE_IMPORT_MLF": [None, 1.01]})
+    summary = build_summary(fy, indicative=draft).set_index("DUID")
+    assert summary.loc["NEWBESS1", "FY27-28 (Draft)"] == pytest.approx(0.97)
+    assert summary.loc["NEWBESS1", "FY27-28 (Draft) Import"] == pytest.approx(1.01)
+    assert summary.loc["NEWBESS1", "REGIONID"] == "VIC1"
+    assert summary.loc["NEWBESS1", "STATUS"] == "Active"
+    assert summary.loc["OTHER1", "FY27-28 (Draft)"] == pytest.approx(0.96)

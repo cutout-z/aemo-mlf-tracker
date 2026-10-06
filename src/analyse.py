@@ -254,8 +254,15 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
         if "INDICATIVE_IMPORT_MLF" in indicative.columns:
             draft_import_col = f"{draft_col} Import"
             join_cols["INDICATIVE_IMPORT_MLF"] = draft_import_col
-        ind = indicative.set_index("DUID")[list(join_cols.keys())].rename(columns=join_cols)
-        result = result.join(ind, how="left")
+        ind = indicative.drop_duplicates("DUID").set_index("DUID")
+        # A DUID that is only in the draft (a unit due to connect next FY) gets a row of its own,
+        # with the region of the draft sheet that lists it; a left join used to drop it.
+        draft_only = ind.index.difference(result.index)
+        if len(draft_only):
+            region = ind.loc[draft_only, "REGIONID"] if "REGIONID" in ind.columns else None
+            result = pd.concat([result, pd.DataFrame({"REGIONID": region}, index=draft_only.rename("DUID"))])
+            logger.info(f"Added {len(draft_only)} rows for DUIDs only in the draft workbook")
+        result = result.join(ind[list(join_cols.keys())].rename(columns=join_cols), how="left")
         logger.info(f"Added indicative column '{draft_col}' ({indicative['DUID'].nunique()} DUIDs)")
 
     # Merge generator/participant metadata if available
