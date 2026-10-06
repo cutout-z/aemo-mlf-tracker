@@ -3,6 +3,7 @@
 import csv
 import io
 import logging
+import re
 import time
 import zipfile
 from pathlib import Path
@@ -55,6 +56,33 @@ GENUNITS_COLS = [
     "LASTCHANGED", "CO2E_EMISSIONS_FACTOR", "CO2E_ENERGY_SOURCE", "CO2E_DATA_SOURCE",
     "MINCAPACITY", "REGISTEREDMINCAPACITY", "MAXSTORAGECAPACITY",
 ]
+# DUID_TYPE labels. Only "Generator" units sell energy at their MLF; the rest carry an MLF
+# because AEMO publishes one for the connection point (see README → Asset type labels).
+GENERATOR = "Generator"
+SCHEDULED_LOAD = "Scheduled Load"      # pumps, auxiliary loads, the load side of dual-MLF units
+NETWORK_LOAD = "Network Load"          # power-station load points (…NL1)
+DUMMY_GENERATOR = "Dummy Generator"    # AEMO's DG_<region> market-system units
+INTERCONNECTOR = "Interconnector"      # Basslink's BLNKTAS / BLNKVIC
+
+# Registration list "Dispatch Type" → DUID_TYPE (a bidirectional unit is a generator here; its
+# battery fuel puts it in the battery table)
+DISPATCH_TYPE_MAP = {"Generating Unit": GENERATOR, "Bidirectional Unit": GENERATOR, "Load": SCHEDULED_LOAD}
+
+_NAME_PATTERNS = [
+    (re.compile(r"NL\d*$", re.IGNORECASE), NETWORK_LOAD),
+    (re.compile(r"^DG_", re.IGNORECASE), DUMMY_GENERATOR),
+    (re.compile(r"^BLNK", re.IGNORECASE), INTERCONNECTOR),
+]
+
+
+def type_from_name(duid) -> str | None:
+    """DUID_TYPE implied by an AEMO naming convention, for units the registration list omits."""
+    for pattern, label in _NAME_PATTERNS:
+        if pattern.search(str(duid)):
+            return label
+    return None
+
+
 # DUALLOC allocates generating sets (GENUNITS rows) to DUIDs. A GENSETID is not a DUID:
 # QUERIVE1 is one DUID over the gensets QUERIVE1 and QUERIVE2 (24 MW each).
 DUALLOC_COLS = ["EFFECTIVEDATE", "VERSIONNO", "DUID", "GENSETID", "LASTCHANGED"]
@@ -244,7 +272,7 @@ def fetch_mmsdm_participant_metadata(
                 content = zf.read(zf.namelist()[0])
             genunits_df = _parse_aemo_csv(content, GENUNITS_COLS)
             keep = ["GENSETID", "STATIONID", "REGISTEREDCAPACITY",
-                    "CO2E_ENERGY_SOURCE", "DISPATCHTYPE"]
+                    "CO2E_ENERGY_SOURCE", "DISPATCHTYPE", "GENSETTYPE"]
             genunits_df = genunits_df[[c for c in keep if c in genunits_df.columns]].copy()
             genunits_df["REGISTEREDCAPACITY"] = pd.to_numeric(
                 genunits_df["REGISTEREDCAPACITY"], errors="coerce"
@@ -367,7 +395,12 @@ def fetch_generator_metadata(
         gen["CAPACITY_MW"] = pd.to_numeric(gen["CAPACITY_MW"], errors="coerce")
 
     gen = gen.drop_duplicates(subset="DUID", keep="first")
-    gen["DUID_TYPE"] = "Generator"
+    # The sheet is "PU and Scheduled Loads": pumps (SHPUMP, SNOWYP, PUMP1/2) and a battery's
+    # separate load DUID (KEPBL1) are registered with Dispatch Type "Load", not as generators.
+    if "DISPATCH_TYPE" in gen.columns:
+        gen["DUID_TYPE"] = gen["DISPATCH_TYPE"].map(DISPATCH_TYPE_MAP).fillna(GENERATOR)
+    else:
+        gen["DUID_TYPE"] = GENERATOR
     logger.info(f"Primary sheet: {len(gen)} generators")
 
     # --- Secondary registration sheets ---
@@ -406,7 +439,14 @@ def fetch_generator_metadata(
             # Resolve station name via GENUNITS.STATIONID → STATION table
             if "STATIONID" in new_rows.columns:
                 new_rows["STATION_NAME"] = new_rows["STATIONID"].map(station_names)
-            new_rows["DUID_TYPE"] = "Generator"
+            # GENSETTYPE says LOAD for pumps and auxiliary loads (KIDSPHL1/2, GPWFEL1); the
+            # naming conventions catch the station load points, dummy generators and Basslink,
+            # which GENUNITS lists as GENERATOR.
+            settype = new_rows["GENSETTYPE"] if "GENSETTYPE" in new_rows.columns else pd.Series("", index=new_rows.index)
+            by_name = new_rows["DUID"].map(type_from_name)
+            new_rows["DUID_TYPE"] = by_name.where(
+                by_name.notna(), settype.map(lambda t: SCHEDULED_LOAD if t == "LOAD" else GENERATOR)
+            )
             new_rows = new_rows.drop_duplicates(subset="DUID", keep="first")
             logger.info(f"MMSDM GENUNITS tier: {len(new_rows)} historical DUIDs added")
             combined = pd.concat([combined, new_rows], ignore_index=True)

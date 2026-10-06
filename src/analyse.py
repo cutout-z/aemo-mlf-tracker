@@ -5,6 +5,7 @@ import logging
 import pandas as pd
 
 from . import config
+from .generators import type_from_name
 
 logger = logging.getLogger(__name__)
 
@@ -262,9 +263,6 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
     result = result.reset_index()
 
     # --- Fallback labelling for DUIDs not in any registration sheet ---
-    import re as _re
-    _nl_pattern = _re.compile(r"NL\d*$", _re.IGNORECASE)
-
     # Enrich STATION_NAME using the MMSDM STATION table (proper full names)
     # Apply to ALL rows so even registered generators that have abbreviated
     # station IDs as a fallback get the full name.
@@ -290,20 +288,14 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
         mask_no_name = result["STATION_NAME"].isna() | (result["STATION_NAME"] == "")
         result.loc[mask_no_name, "STATION_NAME"] = result.loc[mask_no_name, "STATIONID"]
 
-    # Infer DUID_TYPE from DUID suffix if still missing
+    # Infer DUID_TYPE from AEMO's naming conventions (…NL1, DG_…, BLNK…) if still missing
+    _infer_type = lambda duid: type_from_name(duid) or "Unknown"
     if "DUID_TYPE" in result.columns:
         mask_no_type = result["DUID_TYPE"].isna() | (result["DUID_TYPE"] == "")
         if mask_no_type.any():
-            def _infer_type(duid):
-                d = str(duid)
-                if _nl_pattern.search(d):
-                    return "Network Load"
-                return "Unknown"
             result.loc[mask_no_type, "DUID_TYPE"] = result.loc[mask_no_type, "DUID"].map(_infer_type)
     else:
-        result["DUID_TYPE"] = result["DUID"].map(
-            lambda d: "Network Load" if _nl_pattern.search(str(d)) else "Unknown"
-        )
+        result["DUID_TYPE"] = result["DUID"].map(_infer_type)
 
     # Flag retired DUIDs: have historical data but nothing in the two most recent FYs.
     # These are typically old G-suffix battery dispatch DUIDs that AEMO replaced with

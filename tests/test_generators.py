@@ -151,3 +151,34 @@ def test_unallocated_genset_and_missing_dualloc_fall_back_to_genset_ids(tmp_path
     rolled = generators.units_by_duid(
         pd.DataFrame({"GENSETID": ["A1"], "REGISTEREDCAPACITY": [7.0]}), pd.DataFrame(columns=["DUID", "GENSETID"]))
     assert rolled.to_dict("records") == [{"DUID": "A1", "REGISTEREDCAPACITY": 7.0}]
+
+
+# --- DUID_TYPE: loads, load points and notional units are not labelled Generator ----
+
+def test_registered_loads_and_mmsdm_loads_are_not_generators(tmp_path, monkeypatch):
+    write_registration(tmp_path / "NEM-Registration-and-Exemption-List.xls", [
+        ["Snowy", "Shoalhaven", "NSW1", "Load", "Scheduled", "Hydro", "Water", "Pump", "SHPUMP", 240],
+        ["Snowy", "Shoalhaven", "NSW1", "Generating Unit", "Scheduled", "Hydro", "Water", "Hydro", "SHGEN", 240],
+        ["Neoen", "Hornsdale", "SA1", "Bidirectional Unit", "Scheduled", "Battery Storage", "Grid", "Battery", "HPR1", 150],
+    ])
+    units = ["KIDSPHL1", "KIDSPHG1", "CALLNL4", "DG_QLD1", "BLNKTAS"]
+    serve_mmsdm(monkeypatch,
+                [genunit("KIDSPHL1", 160, gensettype="LOAD"), genunit("KIDSPHG1", 126, "Hydro"),
+                 genunit("CALLNL4", 30), genunit("DG_QLD1", 3000), genunit("BLNKTAS", 480)],
+                [["2025/11/18 00:00:00", 1, u, u, ""] for u in units])
+    meta, _ = generators.fetch_generator_metadata(str(tmp_path), 2026, 8)
+    assert meta.set_index("DUID")["DUID_TYPE"].to_dict() == {
+        "SHPUMP": "Scheduled Load", "SHGEN": "Generator", "HPR1": "Generator",
+        "KIDSPHL1": "Scheduled Load", "KIDSPHG1": "Generator", "CALLNL4": "Network Load",
+        "DG_QLD1": "Dummy Generator", "BLNKTAS": "Interconnector",
+    }
+
+
+def test_summary_types_unregistered_duids_by_name():
+    from conftest import detail_rows
+    from src.analyse import build_summary, extract_fy_mlfs
+
+    fy = extract_fy_mlfs(detail_rows(*[(d, "2015-07-01", "2016-07-01", 1.0) for d in ("DG_VIC1", "BLNKVIC", "LYNL1", "XYZ1")]))
+    summary = build_summary(fy).set_index("DUID")
+    assert summary["DUID_TYPE"].to_dict() == {
+        "DG_VIC1": "Dummy Generator", "BLNKVIC": "Interconnector", "LYNL1": "Network Load", "XYZ1": "Unknown"}
