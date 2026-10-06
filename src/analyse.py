@@ -101,6 +101,31 @@ def extract_fy_mlfs(detail_df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
+def find_superseded(detail_df: pd.DataFrame, window_days: int = 60) -> dict[str, str]:
+    """Map each battery DUID that AEMO replaced by a BIDIRECTIONAL DUID to its successor.
+
+    In 2024-25 AEMO re-registered batteries as bidirectional units under new DUIDs (HPRG1 ->
+    HPR1, CAPBES1G -> CAPBES1, ...). The old GENERATOR DUID's records end a few weeks after the
+    new one's first record, at the same STATIONID. A GENERATOR DUID whose last record ends
+    within `window_days` either side of a bidirectional DUID's first record at its station is
+    taken as superseded by it; one that matches more than one is left alone.
+    """
+    if detail_df is None or detail_df.empty or "DISPATCHTYPE" not in detail_df.columns:
+        return {}
+    spans = detail_df.sort_values("START_DATE").groupby("DUID").agg(
+        STATIONID=("STATIONID", "last"), FIRST=("START_DATE", "min"), LAST=("END_DATE", "max"),
+        BDU=("DISPATCHTYPE", lambda s: bool(s.eq("BIDIRECTIONAL").any())),
+    )
+    bdus, gens = spans[spans["BDU"]], spans[~spans["BDU"]]
+    window = pd.Timedelta(days=window_days)
+    pairs = {}
+    for old, g in gens.iterrows():
+        match = bdus[(bdus["STATIONID"] == g["STATIONID"]) & ((g["LAST"] - bdus["FIRST"]).abs() <= window)]
+        if len(match) == 1:
+            pairs[old] = match.index.tolist()[0]
+    return pairs
+
+
 def compute_yoy_changes(fy_mlfs: pd.DataFrame) -> pd.DataFrame:
     """Compute year-on-year MLF changes for each DUID.
 
@@ -116,7 +141,8 @@ def compute_yoy_changes(fy_mlfs: pd.DataFrame) -> pd.DataFrame:
 def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
                   indicative: pd.DataFrame | None = None,
                   final_excel: pd.DataFrame | None = None,
-                  station_names: "pd.Series | None" = None) -> pd.DataFrame:
+                  station_names: "pd.Series | None" = None,
+                  successors: "dict[str, str] | None" = None) -> pd.DataFrame:
     """Build the master summary: pivot FYs to columns, merge generator metadata.
 
     Returns a wide-format DataFrame: one row per DUID with FY columns.
@@ -124,6 +150,9 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
     - final_excel: DataFrame [DUID, FINAL_MLF] from AEMO's published final Excel.
       When provided, overrides the current FY column, which is otherwise blank
       until DUDETAILSUMMARY carries records effective from 1 July.
+    - successors: {old DUID: new DUID} from find_superseded. The old DUID's history is merged
+      into the new DUID's row (for FYs the new one has no MLF of its own) and the old row is
+      dropped; PREVIOUS_DUIDS on the new row names it.
     - indicative: DataFrame [DUID, INDICATIVE_MLF] for the *next* FY draft column.
     """
     df = compute_yoy_changes(fy_mlfs)
@@ -145,6 +174,23 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
     result = meta.join(pivot)
     if import_pivot is not None:
         result = result.join(import_pivot)
+
+    # One row per battery: a superseded DUID's export history continues in its successor's row.
+    # Kept as two rows, both showed e.g. FY24-25 (HPRG1 and HPR1), and the live battery started
+    # its history in 2024.
+    pairs = {o: n for o, n in (successors or {}).items() if o in result.index and n in result.index}
+    if pairs:
+        export_cols = list(pivot.columns)
+        previous: dict[str, list[str]] = {}
+        for old, new in sorted(pairs.items()):
+            fill = result.loc[new, export_cols].isna() & result.loc[old, export_cols].notna()
+            cols = list(fill[fill].index)
+            if cols:
+                result.loc[new, cols] = result.loc[old, cols].values
+            previous.setdefault(new, []).append(old)
+        result["PREVIOUS_DUIDS"] = result.index.map(lambda d: " ".join(previous.get(d, [])) or None)
+        result = result.drop(index=list(pairs))
+        logger.info(f"Merged {len(pairs)} superseded battery DUIDs into their successors")
 
     # The current FY column always exists, even before AEMO has loaded any record
     # for it, so it is filled from the final workbook or left blank — the YoY

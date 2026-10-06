@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from conftest import OPEN_ENDED, detail_rows
-from src.analyse import build_summary, extract_fy_mlfs
+from src.analyse import build_summary, extract_fy_mlfs, find_superseded
 
 
 def _fy(fy_mlfs: pd.DataFrame, duid: str, fy: str) -> pd.Series:
@@ -186,3 +186,40 @@ def test_unit_with_no_current_fy_mlf_is_retired(fy_range):
     draft = pd.DataFrame({"DUID": ["NEXTYR1"], "REGIONID": ["NSW1"], "INDICATIVE_MLF": [0.96]})
     summary = build_summary(fy, indicative=draft).set_index("DUID")
     assert summary["STATUS"].to_dict() == {"WESTCBT1": "Retired", "LIVE1": "Active", "NEXTYR1": "Active"}
+
+
+# --- Batteries re-registered as bidirectional units ------------------------------
+
+def _at_station(df: pd.DataFrame, station: str) -> pd.DataFrame:
+    df["STATIONID"] = station
+    return df
+
+
+# Hornsdale Power Reserve: HPRG1 (GENERATOR) until 2 Oct 2024, HPR1 (BIDIRECTIONAL) from 12 Sep 2024.
+HORNSDALE = [
+    ("HPRG1", "2022-07-01", "2023-07-01", 0.9700),
+    ("HPRG1", "2023-07-01", "2024-07-01", 0.9653),
+    ("HPRG1", "2024-07-01", "2024-10-02", 0.9657),
+    ("HPR1", "2024-09-12", "2025-07-01", 0.9625, 0.9657, "BIDIRECTIONAL"),
+    ("HPR1", "2025-07-01", "2026-07-01", 0.9806, 0.9761, "BIDIRECTIONAL"),
+]
+
+
+def test_superseded_battery_history_merges_into_its_successor(fy_range):
+    fy_range(2022, 2025)
+    detail = pd.concat([
+        _at_station(detail_rows(*HORNSDALE), "HORNSDPR"),
+        # a solar farm at the same station that keeps running is not a predecessor
+        _at_station(detail_rows(("HPRSF1", "2022-07-01", OPEN_ENDED, 0.95)), "HORNSDPR"),
+    ], ignore_index=True)
+    successors = find_superseded(detail)
+    assert successors == {"HPRG1": "HPR1"}
+
+    summary = build_summary(extract_fy_mlfs(detail), successors=successors).set_index("DUID")
+    assert "HPRG1" not in summary.index                                   # one row per battery
+    hpr1 = summary.loc["HPR1"]
+    assert [hpr1["FY22-23"], hpr1["FY23-24"]] == pytest.approx([0.9700, 0.9653])   # inherited history
+    assert hpr1["FY24-25"] == pytest.approx(0.9657)                       # its own value, not HPRG1's
+    assert hpr1["FY24-25 Import"] == pytest.approx(0.9625)
+    assert hpr1["PREVIOUS_DUIDS"] == "HPRG1"
+    assert hpr1["STATUS"] == "Active"
