@@ -311,16 +311,19 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
     else:
         result["DUID_TYPE"] = result["DUID"].map(_infer_type)
 
-    # Flag retired DUIDs: have historical data but nothing in the two most recent FYs.
-    # These are typically old G-suffix battery dispatch DUIDs that AEMO replaced with
-    # BIDIRECTIONAL registration DUIDs during 2024.
+    # Flag retired DUIDs: an MLF in some earlier FY but none for the current FY (and none in the
+    # draft for the next). The current FY column is complete whenever it exists — from the final
+    # workbook (required from April until DUDETAILSUMMARY carries the year) or from records
+    # effective from 1 July — so a DUID AEMO publishes no current MLF for has left the market.
+    # Looking at the two latest FYs instead kept units that closed early in the previous FY
+    # "Active" for a year (WESTCBT1 and BBASEHOS ended 15/07/2025, CHPSTWF1 30/09/2025).
     if len(fy_cols) >= 2:
-        recent_cols = fy_cols[-2:]  # FY25-26 and FY26-27
-        historic_cols = fy_cols[:-2]
-        has_recent = result[recent_cols].notna().any(axis=1)
-        has_historic = result[historic_cols].notna().any(axis=1) if historic_cols else pd.Series(False, index=result.index)
+        current_cols = [fy_cols[-1]] + ([draft_col] if draft_col else [])
+        historic_cols = fy_cols[:-1]
+        has_current = result[current_cols].notna().any(axis=1)
+        has_historic = result[historic_cols].notna().any(axis=1)
         result["STATUS"] = "Active"
-        result.loc[has_historic & ~has_recent, "STATUS"] = "Retired"
+        result.loc[has_historic & ~has_current, "STATUS"] = "Retired"
     else:
         result["STATUS"] = "Active"
 

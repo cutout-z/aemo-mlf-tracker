@@ -169,3 +169,20 @@ def test_draft_only_duid_gets_a_row(fy_range):
     assert summary.loc["NEWBESS1", "REGIONID"] == "VIC1"
     assert summary.loc["NEWBESS1", "STATUS"] == "Active"
     assert summary.loc["OTHER1", "FY27-28 (Draft)"] == pytest.approx(0.96)
+
+
+# --- Retired status -------------------------------------------------------------
+
+def test_unit_with_no_current_fy_mlf_is_retired(fy_range):
+    # WESTCBT1's last record ran 1-15 July 2025: it has an FY25-26 MLF but none for FY26-27.
+    fy_range(2023, 2026)
+    fy = extract_fy_mlfs(detail_rows(
+        ("WESTCBT1", "2024-07-01", "2025-07-01", 0.9954),
+        ("WESTCBT1", "2025-07-01", "2025-07-15", 0.9961),
+        ("LIVE1", "2025-07-01", "2026-07-01", 0.95),
+        ("LIVE1", "2026-07-01", OPEN_ENDED, 0.94),
+        ("NEXTYR1", "2025-07-01", OPEN_ENDED, 0.97),          # not in the final workbook, but in the draft
+    ))
+    draft = pd.DataFrame({"DUID": ["NEXTYR1"], "REGIONID": ["NSW1"], "INDICATIVE_MLF": [0.96]})
+    summary = build_summary(fy, indicative=draft).set_index("DUID")
+    assert summary["STATUS"].to_dict() == {"WESTCBT1": "Retired", "LIVE1": "Active", "NEXTYR1": "Active"}
