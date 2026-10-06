@@ -61,3 +61,10 @@ def test_movers_list_only_units_that_moved_that_way(tmp_path):
     m = movers(workbook(tmp_path)["Biggest Movers"])
     assert m["degraded"] == ["SOLAR1", "BESS1", "BESS5"]          # not WIND1/WIND2/BESS4 (0.0000) or improvers
     assert m["improved"] == ["BESS2", "HYDRO1", "BESS3"]
+
+
+def test_tables_sort_by_latest_final_year_not_the_draft(tmp_path):
+    wb = workbook(tmp_path)
+    for sheet in ("MLF Table", "Heatmap"):
+        first = [wb[sheet].cell(row=r, column=1).value for r in (2, 3)]
+        assert first == ["SOLAR1", "BESS5"], sheet                # FY26-27 0.88, 0.91 — not draft BESS1 0.90

@@ -93,6 +93,13 @@ def _build_fy_column_order(fy_cols: list[str], import_fy_cols: list[str]) -> lis
     return ordered
 
 
+def _sort_latest_first(data: pd.DataFrame, fy_cols: list[str]) -> pd.DataFrame:
+    """Worst first by the latest FINAL year. A draft column sorts after it by name ("FY27-28
+    (Draft)" > "FY26-27"), and sorting on it ordered the published table by indicative values."""
+    final = [c for c in fy_cols if "(Draft)" not in c and c in data.columns]
+    return data.sort_values(final[-1], na_position="last") if final else data
+
+
 def _write_mlf_table(wb: Workbook, data: pd.DataFrame, region_name: str,
                      fy_cols: list[str], import_fy_cols: list[str] | None = None):
     """Sheet 1: Clean MLF table — all DUIDs with FY columns."""
@@ -117,9 +124,7 @@ def _write_mlf_table(wb: Workbook, data: pd.DataFrame, region_name: str,
         cell.border = THIN_BORDER
 
     # Sort by latest MLF ascending (worst first)
-    sort_col = fy_cols[-1] if fy_cols else None
-    if sort_col and sort_col in data.columns:
-        data = data.sort_values(sort_col, na_position="last")
+    data = _sort_latest_first(data, fy_cols)
 
     # Write data
     for row_idx, (_, row) in enumerate(data.iterrows(), 2):
@@ -199,9 +204,7 @@ def _write_heatmap(wb: Workbook, data: pd.DataFrame, region_name: str,
         cell.alignment = Alignment(horizontal="center")
         cell.border = THIN_BORDER
 
-    sort_col = fy_cols[-1] if fy_cols else None
-    if sort_col and sort_col in data.columns:
-        data = data.sort_values(sort_col, na_position="last")
+    data = _sort_latest_first(data, fy_cols)
 
     num_rows = len(data)
     for row_idx, (_, row) in enumerate(data.iterrows(), 2):
