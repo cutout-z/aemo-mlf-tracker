@@ -214,9 +214,13 @@ def _write_heatmap(wb: Workbook, data: pd.DataFrame, region_name: str,
             cell.alignment = Alignment(horizontal="center")
             cell.border = THIN_BORDER
 
-    # Apply colour scale: red (low MLF = bad) → yellow → green (high MLF = good)
+    # Apply colour scale: red (low MLF = bad) → yellow → green (high MLF = good).
+    # Export (generation) columns only: an Import MLF is the factor on the price a battery PAYS to
+    # charge, so a low one is cheaper charging, not a loss, and it gets no red-to-green scale.
     if num_rows > 0:
-        for col_idx in range(2, 2 + len(all_fy_cols)):
+        for col_idx, fy in enumerate(all_fy_cols, 2):
+            if "Import" in fy:
+                continue
             col_letter = get_column_letter(col_idx)
             cell_range = f"{col_letter}2:{col_letter}{num_rows + 1}"
             ws.conditional_formatting.add(
