@@ -170,10 +170,17 @@ def build_summary(fy_mlfs: pd.DataFrame, generators: pd.DataFrame | None = None,
                     .set_index("DUID")["REGION"]
                     .to_dict()
                 )
-            stubs = pd.DataFrame(
-                {"REGIONID": pd.Series(new_duids).map(gen_region).values},
-                index=pd.Index(new_duids, name="DUID"),
+            # Region from the registration list, else from the workbook sheet the DUID is listed
+            # on: units the registration list omits (the Kidston pump side KIDSPHL1/2, the Golden
+            # Plains auxiliary loads) were otherwise left with no region and on no region tab.
+            sheet_region = (
+                final_excel.drop_duplicates("DUID").set_index("DUID")["REGIONID"]
+                if "REGIONID" in final_excel.columns else pd.Series(dtype=object)
             )
+            new_index = pd.Index(new_duids, name="DUID")
+            region = new_index.map(gen_region).to_series(index=new_index)
+            region = region.where(region.notna(), new_index.map(sheet_region).to_series(index=new_index))
+            stubs = pd.DataFrame({"REGIONID": region.values}, index=new_index)
             result = pd.concat([result, stubs])
             logger.info(
                 f"Added {len(new_duids)} stub rows for final-Excel-only DUIDs "

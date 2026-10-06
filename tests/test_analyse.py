@@ -138,3 +138,19 @@ def test_mid_year_starter_in_current_fy_is_used(fy_range):
     fy_range(2025, 2026)
     fy = extract_fy_mlfs(detail_rows(("NEWSF1", "2026-09-15", OPEN_ENDED, 0.9300)))
     assert _fy(fy, "NEWSF1", "FY26-27")["MLF"] == pytest.approx(0.9300)
+
+
+# --- DUIDs only in the final workbook ---------------------------------------------
+
+def test_workbook_only_duid_takes_region_from_its_sheet(fy_range):
+    # KIDSPHL1 (Kidston pump side) is in the final workbook's QLD Gen sheet but in neither
+    # DUDETAILSUMMARY nor the registration list; SHPUMP is registered (NSW1).
+    fy_range(2025, 2026)
+    fy = extract_fy_mlfs(detail_rows(("OTHER1", "2025-07-01", OPEN_ENDED, 0.95)))
+    final = pd.DataFrame({"DUID": ["OTHER1", "KIDSPHL1", "SHPUMP"], "REGIONID": ["NSW1", "QLD1", "NSW1"],
+                          "FINAL_MLF": [0.94, 1.0394, 0.9892]})
+    gens = pd.DataFrame({"DUID": ["SHPUMP"], "REGION": ["NSW1"], "DUID_TYPE": ["Scheduled Load"]})
+    summary = build_summary(fy, gens, final_excel=final).set_index("DUID")
+    assert summary.loc["KIDSPHL1", "REGIONID"] == "QLD1"
+    assert summary.loc["SHPUMP", "REGIONID"] == "NSW1"
+    assert summary.loc["KIDSPHL1", "FY26-27"] == pytest.approx(1.0394)
