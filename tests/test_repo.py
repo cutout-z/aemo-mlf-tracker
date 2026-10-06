@@ -34,3 +34,24 @@ def test_runners_only_stage_paths_git_will_accept(tmp_path):
                if subprocess.run(["git", "check-ignore", "-q", "--no-index", p.replace("*", "x")],
                                  cwd=tmp_path).returncode == 0]
     assert ignored == []
+
+
+def readme_type_labels() -> set[str]:
+    text = (ROOT / "README.md").read_text()
+    table = text.split("### Asset type labels", 1)[1].split("\n\n", 2)[1]
+    return {row.split("|")[1].strip() for row in table.splitlines()[2:] if row.startswith("|")}
+
+
+def test_readme_type_table_matches_the_labels_the_pipeline_emits():
+    from src import generators
+    emitted = {generators.GENERATOR, generators.SCHEDULED_LOAD, generators.NETWORK_LOAD,
+               generators.DUMMY_GENERATOR, generators.INTERCONNECTOR, "Unknown"}
+    emitted |= {label for _, label, _, _ in generators.SECONDARY_SHEETS}
+    assert readme_type_labels() == emitted
+
+
+@pytest.mark.parametrize("doc", ["README.md", "deploy/README.md"])
+def test_docs_do_not_date_the_draft_to_october(doc):
+    # AEMO's draft for the next FY comes out early in March (2 March 2026 for 2026-27) and the
+    # code looks for it from then until the final lands in April; an October run finds none.
+    assert not re.search(r"(draft|indicative)[^.|\n]{0,40}\bin October\b", (ROOT / doc).read_text(), re.I)
