@@ -317,8 +317,11 @@ function getFiltered() {
   if (!showRetired) rows = rows.filter(r => r.STATUS !== 'Retired');
   if (type) rows = rows.filter(r => (r.DUID_TYPE || 'Unknown') === type);
   if (fuel) rows = rows.filter(r => r.FUEL_CATEGORY === fuel);
+  // PREVIOUS_DUIDS: a battery's DUID before AEMO re-registered it as a bidirectional unit (HPRG1 is now
+  // HPR1); its history is merged into the new row, so the old ID must still find it.
   if (search) rows = rows.filter(r =>
     (r.DUID || '').toLowerCase().includes(search) ||
+    (r.PREVIOUS_DUIDS || '').toLowerCase().includes(search) ||
     (r.STATION_NAME || '').toLowerCase().includes(search)
   );
   return rows;

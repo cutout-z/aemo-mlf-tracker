@@ -66,3 +66,12 @@ def test_mlf_tiles_read_generating_units_only():
     assert t[2].startswith("0.9500 | Deepest loss, FY26-27 | GEN1")        # not the pump at 0.8000
     assert t[3] == "1 | Worse than FY25-26 | of 2 generating units with both years · 0 better · 1 unchanged"
     assert "2 live loads, network load points, dummy generators and interconnector units" in out["foot"]
+
+
+def test_search_finds_a_battery_by_its_previous_duid():
+    rows = [
+        {"DUID": "HPR1", "PREVIOUS_DUIDS": "HPRG1", "STATION_NAME": "Hornsdale Power Reserve", "STATUS": "Active", "REGIONID": "SA1"},
+        {"DUID": "LBB1", "PREVIOUS_DUIDS": "", "STATION_NAME": "Lake Bonney BESS", "STATUS": "Active", "REGIONID": "SA1"},
+    ]
+    setup = f"let allData = {json.dumps(rows)}; document.getElementById('search').value = 'hprg1';"
+    assert run_page(["getBaseRows", "getFiltered"], setup, "getFiltered().map(r => r.DUID)") == ["HPR1"]
