@@ -55,6 +55,9 @@ GENUNITS_COLS = [
     "LASTCHANGED", "CO2E_EMISSIONS_FACTOR", "CO2E_ENERGY_SOURCE", "CO2E_DATA_SOURCE",
     "MINCAPACITY", "REGISTEREDMINCAPACITY", "MAXSTORAGECAPACITY",
 ]
+# DUALLOC allocates generating sets (GENUNITS rows) to DUIDs. A GENSETID is not a DUID:
+# QUERIVE1 is one DUID over the gensets QUERIVE1 and QUERIVE2 (24 MW each).
+DUALLOC_COLS = ["EFFECTIVEDATE", "VERSIONNO", "DUID", "GENSETID", "LASTCHANGED"]
 
 # Maps GENUNITS CO2E_ENERGY_SOURCE → FUEL_CATEGORY used in the dashboard
 CO2E_TO_FUEL_MAP = {
@@ -262,6 +265,59 @@ def fetch_mmsdm_participant_metadata(
     return station_names, genunits_df
 
 
+def fetch_mmsdm_dualloc(cache_dir: str, year: int, month: int, refresh: bool = False) -> pd.DataFrame:
+    """The current DUID → GENSETID allocation from the MMSDM DUALLOC table.
+
+    DUALLOC keeps every allocation since 1998; a DUID's current gensets are the rows of its
+    latest EFFECTIVEDATE (highest VERSIONNO on that date). Cached and refreshed like the
+    STATION and GENUNITS tables; an empty frame when neither a download nor a cache exists.
+    """
+    cache = Path(cache_dir) / "mmsdm_dualloc.feather"
+    raw = None
+    if refresh or not cache.exists():
+        raw = _download_mmsdm_zip(MMSDM_PR_URL_TEMPLATE.format(year=year, month=month, table="DUALLOC"))
+    if raw is None and cache.exists():
+        return pd.read_feather(cache)
+    if raw is None:
+        return pd.DataFrame(columns=["DUID", "GENSETID"])
+    with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+        df = _parse_aemo_csv(zf.read(zf.namelist()[0]), DUALLOC_COLS)
+    df["EFFECTIVEDATE"] = pd.to_datetime(df["EFFECTIVEDATE"], errors="coerce")
+    df["VERSIONNO"] = pd.to_numeric(df["VERSIONNO"], errors="coerce")
+    latest = (
+        df.sort_values(["EFFECTIVEDATE", "VERSIONNO"])
+        .groupby("DUID")[["EFFECTIVEDATE", "VERSIONNO"]].last()
+    )
+    df = df.join(latest, on="DUID", rsuffix="_LATEST")
+    current = df[
+        (df["EFFECTIVEDATE"] == df["EFFECTIVEDATE_LATEST"]) & (df["VERSIONNO"] == df["VERSIONNO_LATEST"])
+    ][["DUID", "GENSETID"]].drop_duplicates().reset_index(drop=True)
+    current.to_feather(cache)
+    logger.info(f"DUALLOC: {current['DUID'].nunique()} DUIDs over {len(current)} gensets")
+    return current
+
+
+def units_by_duid(genunits_df: pd.DataFrame, dualloc_df: pd.DataFrame) -> pd.DataFrame:
+    """Roll GENUNITS (one row per generating set) up to one row per DUID via DUALLOC.
+
+    Capacity is the sum over the DUID's current gensets; fuel and type come from the first
+    genset that states them. A genset DUALLOC has never allocated keeps its own ID as the
+    DUID (the old behaviour), so a missing DUALLOC table degrades to that rather than to nothing.
+    """
+    units = genunits_df.copy()
+    if dualloc_df is None or dualloc_df.empty:
+        logger.warning("DUALLOC unavailable: using GENUNITS set IDs as DUIDs")
+        return units.rename(columns={"GENSETID": "DUID"})
+    alloc = dualloc_df[["DUID", "GENSETID"]].merge(units, on="GENSETID", how="inner")
+    first_stated = lambda s: next((v for v in s if pd.notna(v) and v != ""), None)
+    agg = {c: first_stated for c in units.columns if c not in ("GENSETID", "REGISTEREDCAPACITY")}
+    agg["REGISTEREDCAPACITY"] = lambda s: s.sum(min_count=1)
+    rolled = alloc.groupby("DUID", sort=False).agg(agg).reset_index()
+    loose = units[~units["GENSETID"].isin(dualloc_df["GENSETID"])].rename(columns={"GENSETID": "DUID"})
+    loose = loose[~loose["DUID"].isin(rolled["DUID"])]
+    return pd.concat([rolled, loose], ignore_index=True)
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -342,12 +398,11 @@ def fetch_generator_metadata(
             station_names, genunits_df = fetch_mmsdm_participant_metadata(
                 cache_dir, mmsdm_year, mmsdm_month, refresh=refresh
             )
+            dualloc_df = fetch_mmsdm_dualloc(cache_dir, mmsdm_year, mmsdm_month, refresh=refresh)
+            by_duid = units_by_duid(genunits_df, dualloc_df)
             # Build rows for DUIDs in GENUNITS not already in registration list
-            new_rows = genunits_df[~genunits_df["GENSETID"].isin(registered_duids)].copy()
-            new_rows = new_rows.rename(columns={
-                "GENSETID": "DUID",
-                "REGISTEREDCAPACITY": "CAPACITY_MW",
-            })
+            new_rows = by_duid[~by_duid["DUID"].isin(registered_duids)].copy()
+            new_rows = new_rows.rename(columns={"REGISTEREDCAPACITY": "CAPACITY_MW"})
             # Resolve station name via GENUNITS.STATIONID → STATION table
             if "STATIONID" in new_rows.columns:
                 new_rows["STATION_NAME"] = new_rows["STATIONID"].map(station_names)
