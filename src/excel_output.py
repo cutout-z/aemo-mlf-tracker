@@ -252,10 +252,11 @@ def _write_movers(wb: Workbook, data: pd.DataFrame, region_name: str):
         ws.cell(row=1, column=1, value="No YoY data available")
         return
 
-    # Top 20 degrading (most negative YoY change)
-    degrading = valid.nsmallest(20, "YOY_CHANGE")
-    # Top 20 improving (most positive YoY change)
-    improving = valid.nlargest(20, "YOY_CHANGE")
+    # Top 20 degrading (most negative YoY change) and top 20 improving (most positive). A region
+    # with fewer than 20 movers each way lists fewer: TAS used to fill "Most Degraded" with
+    # unchanged (0.0000) and improved units.
+    degrading = valid[valid["YOY_CHANGE"] < 0].nsmallest(20, "YOY_CHANGE")
+    improving = valid[valid["YOY_CHANGE"] > 0].nlargest(20, "YOY_CHANGE")
 
     headers = ["DUID", "Station", "Fuel Type", "Latest MLF", "Prev MLF",
                "YoY Change", "YoY %"]

@@ -44,3 +44,20 @@ def test_heatmap_scale_skips_import_columns(tmp_path):
     letters = {name: ws.cell(row=1, column=i + 1).column_letter for i, name in enumerate(cols)}
     assert letters["FY26-27"] in scaled and letters["FY25-26"] in scaled
     assert letters["FY26-27 Import"] not in scaled
+
+
+def movers(ws) -> dict[str, list[str]]:
+    out, section = {}, None
+    for row in ws.iter_rows(values_only=True):
+        if isinstance(row[0], str) and "— Most " in row[0]:
+            section = "degraded" if "Degraded" in row[0] else "improved"
+            out[section] = []
+        elif section and row[0] not in (None, "DUID"):
+            out[section].append(row[0])
+    return out
+
+
+def test_movers_list_only_units_that_moved_that_way(tmp_path):
+    m = movers(workbook(tmp_path)["Biggest Movers"])
+    assert m["degraded"] == ["SOLAR1", "BESS1", "BESS5"]          # not WIND1/WIND2/BESS4 (0.0000) or improvers
+    assert m["improved"] == ["BESS2", "HYDRO1", "BESS3"]
