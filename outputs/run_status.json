@@ -1,0 +1,34 @@
+{
+  "run_date": "2026-10-07",
+  "final_fy": "2026-27",
+  "mmsdm_month_available": "2026-08",
+  "mmsdm_month": "2026-08",
+  "dudetailsummary_source": "download",
+  "registration_list": {
+    "state": "downloaded",
+    "error": null,
+    "last_modified": "Tue, 29 Sep 2026 02:39:48 GMT",
+    "file_date": "2026-10-07"
+  },
+  "mmsdm_tables": {
+    "STATION": "downloaded",
+    "GENUNITS": "downloaded",
+    "DUALLOC": "downloaded"
+  },
+  "final_workbook": {
+    "fy": "2026-27",
+    "url": "https://aemo.com.au/-/media/files/electricity/nem/security_and_reliability/loss_factors_and_regional_boundaries/2026-27/marginal-loss-factors-for-the-2026-27-financial-year-xls.xlsx",
+    "source": "download",
+    "last_modified": "Wed, 22 Jul 2026 01:19:05 GMT",
+    "sha1": "96a5d0c80ea91a1507c163e2a2b301d43776b58a",
+    "file_date": "2026-10-07",
+    "state": "published",
+    "detail": null
+  },
+  "draft_workbook": {
+    "fy": "2027-28",
+    "url": "https://aemo.com.au/-/media/files/electricity/nem/security_and_reliability/loss_factors_and_regional_boundaries/2027-28/draft-marginal-loss-factors-for-the-2027-28-financial-year-xls.xlsx",
+    "state": "not_published",
+    "detail": "not on AEMO (redirected to /404)"
+  }
+}
