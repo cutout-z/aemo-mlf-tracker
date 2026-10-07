@@ -73,9 +73,11 @@ def run(full_refresh: bool = False):
             generators.to_feather(gen_cache)
             logger.info(f"Cached generator metadata to {gen_cache}")
         except Exception as e:
-            logger.warning(f"Could not fetch generator metadata: {e}")
-            logger.warning("Proceeding without fuel type / capacity data")
-            generators = None
+            # Publishing without fuel, capacity or unit type would empty the page's fuel
+            # filters, battery table and type split while the run still looked green.
+            logger.error(f"Could not build generator metadata: {e}")
+            logger.error("Not publishing without fuel type / capacity data. Exiting.")
+            sys.exit(1)
 
     # Step 4: Extract FY-level MLFs
     fy_mlfs = extract_fy_mlfs(detail_df)
