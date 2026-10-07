@@ -114,6 +114,8 @@ After the pipeline runs and before committing, an automated validation step (`te
 
 If any check fails, the NAS lane or manual fallback workflow exits before committing — preventing bad data from reaching the dashboard.
 
+One check runs after publishing instead: `python -m src.post_publish_check` fails the run when the draft workbook was blocked in March (AEMO's draft month). The page still publishes without the draft column and its footer says the draft is out but could not be downloaded; the lane goes RED so the fetch gets fixed.
+
 ### Run status
 
 Each run writes `outputs/run_status.json`: the run date, the MMSDM archive month used, the final and draft workbooks (URL, AEMO's Last-Modified, SHA-1, and for the draft whether it was found, not yet published or blocked), the registration list (downloaded, cached, or a failed refresh with the date of the copy kept) and whether the MMSDM unit tables were downloaded or cached. The page footer shows it. AEMO answers a workbook that doesn't exist by redirecting to `/404`, whose Cloudflare page returns 403; the pipeline reads that redirect as "not published", and any other 403 or challenge page as "blocked".

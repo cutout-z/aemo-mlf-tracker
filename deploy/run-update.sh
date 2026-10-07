@@ -25,8 +25,15 @@ fi
 
 git add outputs/
 
+# Checks that must not stop publishing (a non-zero exit above skips the commit), run after
+# the push or on the no-change exit: a draft workbook blocked in March fails the lane here.
+post_publish_check() {
+  "${PYTHON}" -m src.post_publish_check
+}
+
 if git diff --cached --quiet; then
   echo "No publishable output changes."
+  post_publish_check
   exit 0
 fi
 
@@ -39,3 +46,5 @@ if [[ "${PUSH_CHANGES}" == "1" ]]; then
 else
   echo "PUSH_CHANGES=0; commit created but not pushed."
 fi
+
+post_publish_check

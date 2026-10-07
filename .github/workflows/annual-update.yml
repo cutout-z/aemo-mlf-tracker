@@ -45,3 +45,6 @@ jobs:
           git add outputs/   # data/ is gitignored (caches rebuilt every run); adding it made this step exit 1
           git diff --staged --quiet || git commit -m "Update MLF data"
           git push
+
+      - name: Post-publish check (draft blocked in March)
+        run: python -m src.post_publish_check
