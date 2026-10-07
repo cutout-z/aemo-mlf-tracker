@@ -104,3 +104,9 @@ def test_footer_names_a_blocked_draft_and_a_failed_registration_refresh():
     parts = run_status_parts(status)
     assert "draft 2027-28 could not be downloaded (blocked), so it is left out" in parts
     assert "registration list refresh failed: fuel and capacity from the copy fetched 22 Sep 2026" in parts
+
+
+def test_footer_says_a_draft_blocked_in_march_is_out_but_missing():
+    status = {**STATUS, "run_date": "2027-03-08", "draft_workbook": {"fy": "2027-28", "state": "blocked"}}
+    assert ("draft 2027-28 is out (AEMO publishes it early in March) but could not be downloaded (blocked), "
+            "so it is left out") in run_status_parts(status)

@@ -804,11 +804,15 @@ function runStatusParts(s) {
     }
   }
   const draft = s.draft_workbook || {};
+  // AEMO publishes the draft early in March, so a March run that was blocked missed a published draft.
+  const draftSeason = new Date(s.run_date).getUTCMonth() === 2;
   if (draft.fy) {
     parts.push({
       published: `draft ${draft.fy} included${draft.last_modified ? ` (AEMO workbook dated ${fmtDay(draft.last_modified)})` : ''}`,
       not_published: `draft ${draft.fy} not yet published`,
-      blocked: `draft ${draft.fy} could not be downloaded (blocked), so it is left out`,
+      blocked: draftSeason
+        ? `draft ${draft.fy} is out (AEMO publishes it early in March) but could not be downloaded (blocked), so it is left out`
+        : `draft ${draft.fy} could not be downloaded (blocked), so it is left out`,
       unreadable: `draft ${draft.fy} could not be read, so it is left out`,
     }[draft.state] || `draft ${draft.fy}: ${draft.state}`);
   }
