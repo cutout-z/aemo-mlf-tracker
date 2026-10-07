@@ -401,7 +401,7 @@ function renderStats() {
     nonGen ? `The MLF tiles count generating units only: ${nonGen} live loads, network load points, dummy generators and interconnector units are listed in the tables but left out.` : '',
     counts[''] ? `${counts['']} live DUIDs have no fuel category in the source data: counted as "not stated", not offered as a filter.` : '',
     noRegion ? `${noRegion} live DUIDs have no region: they sit under All and on no region tab.` : '',
-    'AEMO publishes MLFs once a year: a draft early in the year, then the final by 1 April, effective from 1 July.',
+    'AEMO publishes a draft in early March and the final by 1 April, effective from 1 July, and occasionally revises an MLF during the year. Each FY column holds one value: the one in effect for most of that year, or for the latest year the one applying from 1 July, so a mid-year revision may not show.',
   ].filter(Boolean);
   document.getElementById('statsFoot').innerHTML = notes.map(n => `<span>${n}</span>`).join('<span class="hidden sm:inline" aria-hidden="true">·</span>');
 }
@@ -486,7 +486,7 @@ function renderOneTable(opts) {
   const nRet = unsortedRows.filter(r => r.STATUS === 'Retired').length;
   document.getElementById(sectionId.replace('Section', 'Foot')).innerHTML = [
     'Source: AEMO DUDETAILSUMMARY via MMSDM Archive; the latest year from AEMO’s final MLF publication wherever it lists the DUID',
-    'MLFs are published annually: a draft early in the year, the final by 1 April',
+    'AEMO publishes a draft in early March and the final by 1 April, occasionally revised during the year; each FY column holds one value per year, which may not be the one in effect today',
     `${unsortedRows.length} ${noun} shown (${showRetired ? `live and retired, ${nRet} retired` : 'live only'}), after the filters above`,
     `N/A = ${NA_MLF.charAt(0).toLowerCase() + NA_MLF.slice(1)}; in the change columns, no change in the file`,
     ...(draftCols.length ? ['Draft columns are indicative, not yet final'] : []),

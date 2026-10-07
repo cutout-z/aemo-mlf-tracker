@@ -91,7 +91,7 @@ python -m src.main --full-refresh  # re-download everything
 
 ## Automation
 
-Production updates run on the **NAS runner** (QNAP `ai-wif-runner` container) via the `nas-job aemo-mlf-tracker` lane; see [`deploy/README.md`](deploy/README.md) for details. A QNAP scheduled task fires the lane around AEMO's publications: the final MLFs (by 1 April) and the DUDETAILSUMMARY load of the new year (from July). The draft for the next FY appears early in March and is replaced by the final in April, so only a run between the two shows a draft column. The lane intentionally uses `--full-refresh` because the source footprint is small and AEMO publishes final/draft MLF data on an annual cadence.
+Production updates run on the **NAS runner** (QNAP `ai-wif-runner` container) via the `nas-job aemo-mlf-tracker` lane; see [`deploy/README.md`](deploy/README.md) for details. A QNAP scheduled task fires the lane; its schedule lives in the NAS runner configuration, not in this repo. AEMO's calendar: the draft for the next FY appears early in March and is replaced by the final by 1 April (so only a run between the two shows a draft column); the new year's records reach DUDETAILSUMMARY with the June MMSDM archive (late July); the monthly archive and the registration list change throughout the year, and AEMO occasionally revises a final workbook mid-year (22 July 2026). The lane intentionally uses `--full-refresh` because the source footprint is small. `outputs/run_status.json` and the page footer say which archive month and workbook editions the published data came from.
 
 The lane commits as `aemo-nas-bot` and pushes its updated outputs. GitHub Actions is kept as a manual verification/fallback runner. GitHub Pages deploys on those pushes.
 
