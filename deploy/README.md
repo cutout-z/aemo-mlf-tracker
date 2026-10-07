@@ -29,6 +29,12 @@ not the pytest suite) and commits/pushes only when `outputs/` changed, and the s
 `git pull --ff-only` is impossible it resets onto the fetched remote instead
 of exiting 128.
 
+After the push (or the "no changes" exit) it runs `python -m src.post_publish_check`,
+which reads `outputs/run_status.json` and fails the lane when the run is in March and the
+draft workbook was blocked: the page has already gone out without the draft column (its
+footer says the draft is out but could not be downloaded), and the lane goes RED so the
+fetch gets looked at. A blocked draft outside March, or a draft not yet published, passes.
+
 ## Env
 
 `deploy/env.example` documents the settings the lane injects (`APP_DIR`,
