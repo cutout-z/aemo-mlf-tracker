@@ -75,3 +75,32 @@ def test_search_finds_a_battery_by_its_previous_duid():
     ]
     setup = f"let allData = {json.dumps(rows)}; document.getElementById('search').value = 'hprg1';"
     assert run_page(["getBaseRows", "getFiltered"], setup, "getFiltered().map(r => r.DUID)") == ["HPR1"]
+
+
+def run_status_parts(status):
+    return run_page(["fmtDay", "runStatusParts"], f"const s = {json.dumps(status)};", "runStatusParts(s)")
+
+
+STATUS = {
+    "run_date": "2026-10-07", "mmsdm_month": "2026-08",
+    "final_workbook": {"fy": "2026-27", "state": "published", "last_modified": "Wed, 22 Jul 2026 05:12:00 GMT"},
+    "draft_workbook": {"fy": "2027-28", "state": "not_published"},
+    "registration_list": {"state": "downloaded", "file_date": "2026-10-07"},
+}
+
+
+def test_footer_states_what_the_data_was_built_from():
+    assert run_status_parts(STATUS) == [
+        "Data as of the 2026-08 MMSDM archive",
+        "final 2026-27 MLFs: AEMO workbook dated 22 Jul 2026",
+        "draft 2027-28 not yet published",
+        "refreshed 7 Oct 2026",
+    ]
+
+
+def test_footer_names_a_blocked_draft_and_a_failed_registration_refresh():
+    status = {**STATUS, "draft_workbook": {"fy": "2027-28", "state": "blocked"},
+              "registration_list": {"state": "refresh_failed", "file_date": "2026-09-22"}}
+    parts = run_status_parts(status)
+    assert "draft 2027-28 could not be downloaded (blocked), so it is left out" in parts
+    assert "registration list refresh failed: fuel and capacity from the copy fetched 22 Sep 2026" in parts

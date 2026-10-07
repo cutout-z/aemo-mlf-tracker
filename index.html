@@ -258,6 +258,7 @@
 <section class="card mt-4 shell-dl">
   <div class="card-body flex flex-wrap items-center gap-2" id="downloads"></div>
   <div class="card-foot" id="footer">Source: AEMO DUDETAILSUMMARY via MMSDM Archive; the latest year from AEMO’s final MLF publication wherever it lists the DUID</div>
+  <div class="card-foot" id="runStatus" style="display:none"></div>
 </section>
 
 </main>
@@ -783,6 +784,49 @@ document.getElementById('themeToggle').onclick = () => {
   syncThemeToggle();
 };
 syncThemeToggle();
+
+// outputs/run_status.json (written by src/main.py): what this data was built from, for the footer.
+function fmtDay(v) {
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const d = new Date(v);
+  return isNaN(d) ? String(v) : `${d.getUTCDate()} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
+function runStatusParts(s) {
+  const parts = [];
+  if (s.mmsdm_month) parts.push(`Data as of the ${s.mmsdm_month} MMSDM archive`);
+  const fin = s.final_workbook || {};
+  if (fin.fy) {
+    if (fin.state === 'published') {
+      parts.push(`final ${fin.fy} MLFs: AEMO workbook ${fin.last_modified ? `dated ${fmtDay(fin.last_modified)}` : 'from the cache'}`);
+    } else {
+      parts.push(`final ${fin.fy} workbook not read (${fin.state === 'not_published' ? 'not found on AEMO' : 'download blocked'}), so ${fin.fy} comes from DUDETAILSUMMARY only`);
+    }
+  }
+  const draft = s.draft_workbook || {};
+  if (draft.fy) {
+    parts.push({
+      published: `draft ${draft.fy} included${draft.last_modified ? ` (AEMO workbook dated ${fmtDay(draft.last_modified)})` : ''}`,
+      not_published: `draft ${draft.fy} not yet published`,
+      blocked: `draft ${draft.fy} could not be downloaded (blocked), so it is left out`,
+      unreadable: `draft ${draft.fy} could not be read, so it is left out`,
+    }[draft.state] || `draft ${draft.fy}: ${draft.state}`);
+  }
+  const reg = s.registration_list || {};
+  if (reg.state === 'refresh_failed') parts.push(`registration list refresh failed: fuel and capacity from the copy fetched ${fmtDay(reg.file_date)}`);
+  if (s.run_date) parts.push(`refreshed ${fmtDay(s.run_date)}`);
+  return parts;
+}
+
+fetch('outputs/run_status.json', {cache: 'no-cache'})
+  .then(r => r.ok ? r.json() : null)
+  .then(s => {
+    if (!s) return;
+    const el = document.getElementById('runStatus');
+    el.innerHTML = runStatusParts(s).map(t => `<span>${t}</span>`).join('<span class="hidden sm:inline" aria-hidden="true">·</span>');
+    el.style.display = '';
+  })
+  .catch(() => {});   // an older deploy without the file keeps the plain footer
 
 if (typeof Papa === 'undefined') {
   showLoadProblem('Could not load the CSV reader', 'The PapaParse script from cdn.jsdelivr.net did not load, so outputs/summary.csv cannot be read. Check the connection and reload.');

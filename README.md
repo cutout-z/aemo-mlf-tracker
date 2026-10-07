@@ -108,8 +108,15 @@ After the pipeline runs and before committing, an automated validation step (`te
 - LATEST_MLF values in [0.5, 1.5]
 - YOY_CHANGE is consistent with LATEST_MLF - PREV_MLF (within 0.001 tolerance)
 - All 5 regional Excel workbooks exist
+- The current FY is filled in and not last year's values copied forward, and the previous FY matches AEMO's final workbook
+- At least 90% of live generating units have a fuel category and a capacity (a run without the registration list fails)
+- Input age, from `outputs/run_status.json`: the MMSDM archive month ended no more than 75 days before the run, the latest final MLF year is the current FY or the next one, and the registration list in use was fetched no more than 60 days before the run
 
 If any check fails, the NAS lane or manual fallback workflow exits before committing — preventing bad data from reaching the dashboard.
+
+### Run status
+
+Each run writes `outputs/run_status.json`: the run date, the MMSDM archive month used, the final and draft workbooks (URL, AEMO's Last-Modified, SHA-1, and for the draft whether it was found, not yet published or blocked), the registration list (downloaded, cached, or a failed refresh with the date of the copy kept) and whether the MMSDM unit tables were downloaded or cached. The page footer shows it. AEMO answers a workbook that doesn't exist by redirecting to `/404`, whose Cloudflare page returns 403; the pipeline reads that redirect as "not published", and any other 403 or challenge page as "blocked".
 
 ## Data sources
 
