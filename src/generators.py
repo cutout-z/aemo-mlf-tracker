@@ -1,6 +1,7 @@
 """Generator metadata from AEMO NEM Registration and Exemption List + MMSDM tables."""
 
 import csv
+import datetime as _dt
 import io
 import logging
 import re
@@ -112,14 +113,22 @@ CO2E_TO_FUEL_MAP = {
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _download_xls(cache_dir: str, refresh: bool = False) -> Path:
+def _download_xls(cache_dir: str, refresh: bool = False, status: dict | None = None) -> Path:
     """Download the NEM Registration List to cache_dir.
 
     Without ``refresh`` a cached copy is reused. With it (every --full-refresh) the list is
     fetched again, because units registered since the cached copy otherwise get no fuel,
     capacity or type (the NAS lane's copy dated from 11 May 2026). A failed refresh keeps the
     cached copy and says so; with no cached copy it raises.
+
+    The body must be a workbook (an xlsx zip, starting "PK"): AEMO's Cloudflare can answer
+    with a challenge page and HTTP 200, which used to overwrite the good cache and leave the
+    run with no fuel or capacity data. Such a body counts as a failed refresh.
+
+    `status`, when given, records state (downloaded, cached or refresh_failed), AEMO's
+    Last-Modified, the date the file in use was fetched (file_date) and any error.
     """
+    rec = status if status is not None else {}
     cache_path = Path(cache_dir)
     cache_path.mkdir(parents=True, exist_ok=True)
     xls_path = cache_path / "NEM-Registration-and-Exemption-List.xls"
@@ -133,18 +142,26 @@ def _download_xls(cache_dir: str, refresh: bool = False) -> Path:
                     headers={"User-Agent": "Mozilla/5.0 AEMO-MLF-Tracker"},
                 )
                 resp.raise_for_status()
+                if not resp.content.startswith(b"PK"):
+                    raise ValueError("HTTP 200 but the body is not a workbook (challenge page?)")
                 xls_path.write_bytes(resp.content)
+                rec.update(state="downloaded", error=None,
+                           last_modified=(getattr(resp, "headers", None) or {}).get("Last-Modified"))
                 logger.info(f"Downloaded {len(resp.content) / 1024:.0f} KB")
                 break
-            except requests.RequestException as e:
+            except (requests.RequestException, ValueError) as e:
                 if attempt < config.MAX_RETRIES - 1:
                     wait = config.RETRY_BACKOFF * (attempt + 1)
                     logger.warning(f"Download failed (attempt {attempt+1}): {e}. Retrying in {wait}s...")
                     time.sleep(wait)
                 elif xls_path.exists():
                     logger.warning(f"Registration list refresh failed ({e}); keeping the cached copy")
+                    rec.update(state="refresh_failed", error=str(e), last_modified=None)
                 else:
                     raise RuntimeError(f"Failed to download registration list: {e}")
+    else:
+        rec.update(state="cached", error=None, last_modified=None)
+    rec["file_date"] = _dt.date.fromtimestamp(xls_path.stat().st_mtime).isoformat()
     return xls_path
 
 
@@ -213,8 +230,15 @@ def _download_mmsdm_zip(url: str) -> bytes | None:
 # MMSDM participant registration lookup
 # ---------------------------------------------------------------------------
 
+def _table_state(raw, cache: Path) -> str:
+    """downloaded / cached / missing: where an MMSDM table in use came from."""
+    if raw is not None:
+        return "downloaded"
+    return "cached" if cache.exists() else "missing"
+
+
 def fetch_mmsdm_participant_metadata(
-    cache_dir: str, year: int, month: int, refresh: bool = False
+    cache_dir: str, year: int, month: int, refresh: bool = False, status: dict | None = None
 ) -> tuple[pd.Series, pd.DataFrame]:
     """Download STATION and GENUNITS tables from the MMSDM archive.
 
@@ -236,6 +260,8 @@ def fetch_mmsdm_participant_metadata(
         url = MMSDM_PR_URL_TEMPLATE.format(year=year, month=month, table="STATION")
         raw = _download_mmsdm_zip(url)
     if raw is None and station_cache.exists():
+        if refresh:
+            logger.warning("STATION table refresh failed; using the cached table")
         station_df = pd.read_feather(station_cache)
         logger.info(f"Loaded STATION cache ({len(station_df)} rows)")
     else:
@@ -254,6 +280,8 @@ def fetch_mmsdm_participant_metadata(
             station_df.reset_index(drop=True).to_feather(station_cache)
         logger.info(f"STATION table: {len(station_df)} stations")
 
+    if status is not None:
+        status["STATION"] = _table_state(raw, station_cache)
     station_names = station_df.set_index("STATIONID")["STATIONNAME"]
 
     # --- GENUNITS table ---
@@ -262,6 +290,8 @@ def fetch_mmsdm_participant_metadata(
         url = MMSDM_PR_URL_TEMPLATE.format(year=year, month=month, table="GENUNITS")
         raw = _download_mmsdm_zip(url)
     if raw is None and genunits_cache.exists():
+        if refresh:
+            logger.warning("GENUNITS table refresh failed; using the cached table")
         genunits_df = pd.read_feather(genunits_cache)
         logger.info(f"Loaded GENUNITS cache ({len(genunits_df)} rows)")
     else:
@@ -283,6 +313,8 @@ def fetch_mmsdm_participant_metadata(
             genunits_df = genunits_df.drop_duplicates("GENSETID", keep="last")
             genunits_df.reset_index(drop=True).to_feather(genunits_cache)
         logger.info(f"GENUNITS table: {len(genunits_df)} units")
+    if status is not None:
+        status["GENUNITS"] = _table_state(raw, genunits_cache)
 
     # Add FUEL_CATEGORY from CO2E mapping
     if "CO2E_ENERGY_SOURCE" in genunits_df.columns:
@@ -293,7 +325,9 @@ def fetch_mmsdm_participant_metadata(
     return station_names, genunits_df
 
 
-def fetch_mmsdm_dualloc(cache_dir: str, year: int, month: int, refresh: bool = False) -> pd.DataFrame:
+def fetch_mmsdm_dualloc(
+    cache_dir: str, year: int, month: int, refresh: bool = False, status: dict | None = None
+) -> pd.DataFrame:
     """The current DUID → GENSETID allocation from the MMSDM DUALLOC table.
 
     DUALLOC keeps every allocation since 1998; a DUID's current gensets are the rows of its
@@ -304,7 +338,11 @@ def fetch_mmsdm_dualloc(cache_dir: str, year: int, month: int, refresh: bool = F
     raw = None
     if refresh or not cache.exists():
         raw = _download_mmsdm_zip(MMSDM_PR_URL_TEMPLATE.format(year=year, month=month, table="DUALLOC"))
+    if status is not None:
+        status["DUALLOC"] = _table_state(raw, cache)
     if raw is None and cache.exists():
+        if refresh:
+            logger.warning("DUALLOC table refresh failed; using the cached table")
         return pd.read_feather(cache)
     if raw is None:
         return pd.DataFrame(columns=["DUID", "GENSETID"])
@@ -352,7 +390,7 @@ def units_by_duid(genunits_df: pd.DataFrame, dualloc_df: pd.DataFrame) -> pd.Dat
 
 def fetch_generator_metadata(
     cache_dir: str, mmsdm_year: int | None = None, mmsdm_month: int | None = None,
-    refresh: bool = False,
+    refresh: bool = False, status: dict | None = None,
 ) -> tuple[pd.DataFrame, pd.Series]:
     """Fetch all DUID metadata from NEM Registration List + MMSDM tables.
 
@@ -362,8 +400,13 @@ def fetch_generator_metadata(
                      TECHNOLOGY columns where available)
         station_names — pd.Series(STATIONID → STATIONNAME) for name enrichment
                         in build_summary
+
+    `status`, when given, gets a "registration_list" record (see _download_xls) and an
+    "mmsdm_tables" record (each table downloaded, cached or missing, plus any error).
     """
-    xls_path = _download_xls(cache_dir, refresh=refresh)
+    status = status if status is not None else {}
+    xls_path = _download_xls(cache_dir, refresh=refresh, status=status.setdefault("registration_list", {}))
+    tables = status.setdefault("mmsdm_tables", {})
 
     # --- Primary sheet: currently registered generators ---
     logger.info("Parsing primary sheet (PU and Scheduled Loads)...")
@@ -429,9 +472,9 @@ def fetch_generator_metadata(
     if mmsdm_year is not None and mmsdm_month is not None:
         try:
             station_names, genunits_df = fetch_mmsdm_participant_metadata(
-                cache_dir, mmsdm_year, mmsdm_month, refresh=refresh
+                cache_dir, mmsdm_year, mmsdm_month, refresh=refresh, status=tables
             )
-            dualloc_df = fetch_mmsdm_dualloc(cache_dir, mmsdm_year, mmsdm_month, refresh=refresh)
+            dualloc_df = fetch_mmsdm_dualloc(cache_dir, mmsdm_year, mmsdm_month, refresh=refresh, status=tables)
             by_duid = units_by_duid(genunits_df, dualloc_df)
             # Build rows for DUIDs in GENUNITS not already in registration list
             new_rows = by_duid[~by_duid["DUID"].isin(registered_duids)].copy()
@@ -452,6 +495,7 @@ def fetch_generator_metadata(
             combined = pd.concat([combined, new_rows], ignore_index=True)
         except Exception as e:
             logger.warning(f"MMSDM participant metadata unavailable: {e}")
+            tables["error"] = str(e)
 
     logger.info(f"Total metadata: {len(combined)} DUIDs")
     return combined, station_names

@@ -91,7 +91,7 @@ python -m src.main --full-refresh  # re-download everything
 
 ## Automation
 
-Production updates run on the **NAS runner** (QNAP `ai-wif-runner` container) via the `nas-job aemo-mlf-tracker` lane; see [`deploy/README.md`](deploy/README.md) for details. A QNAP scheduled task fires the lane around AEMO's publications: the final MLFs (by 1 April) and the DUDETAILSUMMARY load of the new year (from July). The draft for the next FY appears early in March and is replaced by the final in April, so only a run between the two shows a draft column. The lane intentionally uses `--full-refresh` because the source footprint is small and AEMO publishes final/draft MLF data on an annual cadence.
+Production updates run on the **NAS runner** (QNAP `ai-wif-runner` container) via the `nas-job aemo-mlf-tracker` lane; see [`deploy/README.md`](deploy/README.md) for details. A QNAP scheduled task fires the lane; its schedule lives in the NAS runner configuration, not in this repo. AEMO's calendar: the draft for the next FY appears early in March and is replaced by the final by 1 April (so only a run between the two shows a draft column); the new year's records reach DUDETAILSUMMARY with the June MMSDM archive (late July); the monthly archive and the registration list change throughout the year, and AEMO occasionally revises a final workbook mid-year (22 July 2026). The lane intentionally uses `--full-refresh` because the source footprint is small. `outputs/run_status.json` and the page footer say which archive month and workbook editions the published data came from.
 
 The lane commits as `aemo-nas-bot` and pushes its updated outputs. GitHub Actions is kept as a manual verification/fallback runner. GitHub Pages deploys on those pushes.
 
@@ -108,8 +108,15 @@ After the pipeline runs and before committing, an automated validation step (`te
 - LATEST_MLF values in [0.5, 1.5]
 - YOY_CHANGE is consistent with LATEST_MLF - PREV_MLF (within 0.001 tolerance)
 - All 5 regional Excel workbooks exist
+- The current FY is filled in and not last year's values copied forward, and the previous FY matches AEMO's final workbook
+- At least 90% of live generating units have a fuel category and a capacity (a run without the registration list fails)
+- Input age, from `outputs/run_status.json`: the MMSDM archive month ended no more than 75 days before the run, the latest final MLF year is the current FY or the next one, and the registration list in use was fetched no more than 60 days before the run
 
 If any check fails, the NAS lane or manual fallback workflow exits before committing — preventing bad data from reaching the dashboard.
+
+### Run status
+
+Each run writes `outputs/run_status.json`: the run date, the MMSDM archive month used, the final and draft workbooks (URL, AEMO's Last-Modified, SHA-1, and for the draft whether it was found, not yet published or blocked), the registration list (downloaded, cached, or a failed refresh with the date of the copy kept) and whether the MMSDM unit tables were downloaded or cached. The page footer shows it. AEMO answers a workbook that doesn't exist by redirecting to `/404`, whose Cloudflare page returns 403; the pipeline reads that redirect as "not published", and any other 403 or challenge page as "blocked".
 
 ## Data sources
 

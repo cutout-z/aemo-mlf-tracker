@@ -8,8 +8,9 @@ from src import config, generators
 
 
 class _Resp:
-    def __init__(self, content: bytes):
+    def __init__(self, content: bytes, headers=None):
         self.content = content
+        self.headers = headers or {}
 
     def raise_for_status(self):
         pass
@@ -28,10 +29,34 @@ def test_cached_registration_list_is_reused_without_refresh(tmp_path, monkeypatc
 
 
 def test_refresh_replaces_a_stale_registration_list(tmp_path, monkeypatch):
-    (tmp_path / "NEM-Registration-and-Exemption-List.xls").write_bytes(b"old")
-    monkeypatch.setattr(generators.requests, "get", lambda *a, **k: _Resp(b"new"))
-    path = generators._download_xls(str(tmp_path), refresh=True)
-    assert path.read_bytes() == b"new"
+    (tmp_path / "NEM-Registration-and-Exemption-List.xls").write_bytes(b"PK old")
+    monkeypatch.setattr(generators.requests, "get",
+                        lambda *a, **k: _Resp(b"PK new", {"Last-Modified": "Tue, 22 Sep 2026 01:00:00 GMT"}))
+    status = {}
+    path = generators._download_xls(str(tmp_path), refresh=True, status=status)
+    assert path.read_bytes() == b"PK new"
+    assert status["state"] == "downloaded" and status["last_modified"].startswith("Tue, 22 Sep 2026")
+
+
+def test_challenge_page_never_overwrites_the_cached_list(tmp_path, monkeypatch, caplog):
+    # Cloudflare can answer with a "Just a moment..." page and HTTP 200: it used to be
+    # written over the good cache, and the run then published with no fuel or capacity.
+    (tmp_path / "NEM-Registration-and-Exemption-List.xls").write_bytes(b"PK old")
+    monkeypatch.setattr(generators.requests, "get",
+                        lambda *a, **k: _Resp(b"<!DOCTYPE html><title>Just a moment...</title>"))
+    status = {}
+    with caplog.at_level("WARNING"):
+        path = generators._download_xls(str(tmp_path), refresh=True, status=status)
+    assert path.read_bytes() == b"PK old"
+    assert status["state"] == "refresh_failed" and "not a workbook" in status["error"]
+    assert status["file_date"]                     # the date of the copy actually used
+
+
+def test_challenge_page_with_no_cache_raises(tmp_path, monkeypatch):
+    monkeypatch.setattr(generators.requests, "get", lambda *a, **k: _Resp(b"<html></html>"))
+    with pytest.raises(RuntimeError, match="registration list"):
+        generators._download_xls(str(tmp_path), refresh=True)
+    assert not (tmp_path / "NEM-Registration-and-Exemption-List.xls").exists()
 
 
 def test_failed_refresh_keeps_the_cached_list(tmp_path, monkeypatch, caplog):
@@ -40,9 +65,11 @@ def test_failed_refresh_keeps_the_cached_list(tmp_path, monkeypatch, caplog):
     def boom(*a, **k):
         raise requests.ConnectionError("blocked")
     monkeypatch.setattr(generators.requests, "get", boom)
+    status = {}
     with caplog.at_level("WARNING"):
-        path = generators._download_xls(str(tmp_path), refresh=True)
+        path = generators._download_xls(str(tmp_path), refresh=True, status=status)
     assert path.read_bytes() == b"old" and "keeping the cached copy" in caplog.text
+    assert status["state"] == "refresh_failed" and "blocked" in status["error"]
 
 
 def test_failed_refresh_with_no_cache_raises(tmp_path, monkeypatch):
@@ -59,8 +86,10 @@ def test_mmsdm_tables_refetched_on_refresh_and_cache_kept_on_failure(tmp_path, m
                   "CO2E_ENERGY_SOURCE": ["Solar"], "DISPATCHTYPE": ["GENERATOR"]}).to_feather(tmp_path / "mmsdm_genunits.feather")
     calls = []
     monkeypatch.setattr(generators, "_download_mmsdm_zip", lambda url: calls.append(url))  # returns None: failed
-    names, units = generators.fetch_mmsdm_participant_metadata(str(tmp_path), 2026, 8, refresh=True)
+    tables = {}
+    names, units = generators.fetch_mmsdm_participant_metadata(str(tmp_path), 2026, 8, refresh=True, status=tables)
     assert len(calls) == 2                       # both tables were re-fetched
+    assert tables == {"STATION": "cached", "GENUNITS": "cached"}   # ...and the fallback is recorded
     assert names.to_dict() == {"OLD": "Old station"} and list(units["GENSETID"]) == ["G1"]   # cache kept
     calls.clear()
     generators.fetch_mmsdm_participant_metadata(str(tmp_path), 2026, 8)
@@ -136,7 +165,10 @@ QUERIVE_DUALLOC = [
 def test_genunits_are_rolled_up_to_duids_through_dualloc(tmp_path, monkeypatch):
     write_registration(tmp_path / "NEM-Registration-and-Exemption-List.xls", [])
     serve_mmsdm(monkeypatch, QUERIVE_GENUNITS, QUERIVE_DUALLOC)
-    meta, _ = generators.fetch_generator_metadata(str(tmp_path), 2026, 8)
+    status = {}
+    meta, _ = generators.fetch_generator_metadata(str(tmp_path), 2026, 8, status=status)
+    assert status["registration_list"]["state"] == "cached"
+    assert status["mmsdm_tables"] == {"STATION": "downloaded", "GENUNITS": "downloaded", "DUALLOC": "downloaded"}
     meta = meta.set_index("DUID")
     assert meta.loc["QUERIVE1", "CAPACITY_MW"] == pytest.approx(48)   # not genset QUERIVE1's 24 MW
     assert meta.loc["QUERIVE1", "FUEL_CATEGORY"] == "Fossil"

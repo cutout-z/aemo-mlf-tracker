@@ -45,7 +45,11 @@ FUEL_TYPE_MAP = {
 DATA_DIR = "data"
 OUTPUT_DIR = "outputs"
 SUMMARY_CSV = "outputs/summary.csv"
+# What this run used: archive month, workbook editions, draft state, metadata freshness.
+# Read by the page footer and by tests/validate_outputs.py's input-age checks.
+RUN_STATUS_JSON = "outputs/run_status.json"
 CACHE_FILE = "data/dudetailsummary.feather"
+CACHE_MONTH_FILE = "data/dudetailsummary.month"   # the MMSDM month the cached DUDETAILSUMMARY came from
 GENERATOR_CACHE = "data/generators.feather"
 
 # Network retry settings

@@ -4,9 +4,12 @@ Checks summary.csv and regional Excel workbooks for data integrity
 before committing to the repository. Exits non-zero on any failure.
 """
 
+import calendar
+import json
 import re
 import sys
 import warnings
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -16,6 +19,15 @@ OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 DATA_DIR = PROJECT_ROOT / "data"
 REGIONS = ["NSW1", "QLD1", "VIC1", "SA1", "TAS1"]
 REGION_NAMES = {"NSW1": "NSW", "QLD1": "QLD", "VIC1": "VIC", "SA1": "SA", "TAS1": "TAS"}
+RUN_STATUS = OUTPUTS_DIR / "run_status.json"
+
+# Input-age limits, counted back from the run date in run_status.json.
+# MMSDM month M lands on nemweb about 4 weeks after M ends (2026_08 on 28 Sep 2026), so
+# the newest archive is normally 30-60 days past its month end; 75 allows a late month.
+MAX_ARCHIVE_AGE_DAYS = 75
+# The registration list is re-fetched on every --full-refresh; a copy this old means the
+# refresh has been failing (the cached copy is kept and recorded as refresh_failed).
+MAX_REGISTRATION_AGE_DAYS = 60
 
 errors = []
 
@@ -81,6 +93,10 @@ def validate():
 
     check_current_fy(df)
     check_against_final_workbook(df)
+    check_metadata_coverage(df)
+    status = load_run_status()
+    if status is not None:
+        check_input_freshness(df, status)
 
     # --- Regional Excel workbooks exist ---
     for region_id, name in REGION_NAMES.items():
@@ -121,6 +137,81 @@ def check_current_fy(df, max_flat_share=0.25, min_coverage=0.5):
             f"{fy_cols[-1]} equals {fy_cols[-2]} for {flat:.0%} of DUIDs "
             f"(expected <= {max_flat_share:.0%}) — previous FY copied forward?",
         )
+
+
+def load_run_status(path=None):
+    """outputs/run_status.json as written by src/main.py, or None (a failure) if absent."""
+    path = path or RUN_STATUS
+    if not check(path.exists(), f"{path.name} does not exist — run src.main to record what the outputs were built from"):
+        return None
+    try:
+        return json.loads(path.read_text())
+    except ValueError as e:
+        check(False, f"{path.name} is not valid JSON: {e}")
+        return None
+
+
+def check_input_freshness(df, status, max_archive_age=MAX_ARCHIVE_AGE_DAYS,
+                          max_registration_age=MAX_REGISTRATION_AGE_DAYS):
+    """The inputs must be recent relative to the run date, not just well-formed.
+
+    - The MMSDM archive month used ended no more than `max_archive_age` days before the run.
+    - The latest final FY column is the current FY or the next one (from 1 April).
+    - The registration list in use was fetched no more than `max_registration_age` days ago.
+    """
+    try:
+        run_date = date.fromisoformat(str(status.get("run_date")))
+    except ValueError:
+        check(False, f"run_status.json has no valid run_date ({status.get('run_date')!r})")
+        return
+
+    month = status.get("mmsdm_month")
+    if check(bool(month), "run_status.json does not say which MMSDM archive month was used "
+                          "(cache from before the month was recorded? run with --full-refresh)"):
+        year, mon = (int(x) for x in str(month).split("-"))
+        month_end = date(year, mon, calendar.monthrange(year, mon)[1])
+        age = (run_date - month_end).days
+        check(age <= max_archive_age,
+              f"MMSDM archive {month} ended {age} days before the run on {run_date} "
+              f"(expected <= {max_archive_age}) — newer archive months not picked up?")
+
+    fy_cols = _final_fy_cols(df)
+    if check(bool(fy_cols), "summary.csv has no final FY columns"):
+        latest = 2000 + int(fy_cols[-1][2:4])
+        current = run_date.year if run_date.month >= 7 else run_date.year - 1
+        check(latest in (current, current + 1),
+              f"Latest final MLF year is {fy_cols[-1]} but the run on {run_date} is in "
+              f"FY{current % 100:02d}-{(current + 1) % 100:02d} — final MLFs out of date?")
+
+    reg = status.get("registration_list") or {}
+    if check(bool(reg.get("file_date")), "run_status.json does not record the registration list in use"):
+        age = (run_date - date.fromisoformat(reg["file_date"])).days
+        check(age <= max_registration_age,
+              f"The registration list in use was fetched on {reg['file_date']}, {age} days before the "
+              f"run (state: {reg.get('state')}; expected <= {max_registration_age}) — refresh failing?")
+
+
+def check_metadata_coverage(df, min_share=0.9):
+    """Live generating units must carry fuel and capacity from the registration list.
+
+    A run without generator metadata used to publish anyway: every unit typed Unknown,
+    no fuel or capacity. About 95% of live generating units have a fuel category.
+    """
+    missing = [c for c in ("DUID_TYPE", "FUEL_CATEGORY", "CAPACITY_MW") if c not in df.columns]
+    if not check(not missing, f"summary.csv has no {', '.join(missing)} — generator metadata missing?"):
+        return
+    live = df if "STATUS" not in df.columns else df[df["STATUS"] != "Retired"]
+    gens = live[live["DUID_TYPE"] == "Generator"]
+    if not check(len(gens) > 0, "No live DUIDs typed Generator — generator metadata missing?"):
+        return
+    fuel = (gens["FUEL_CATEGORY"].fillna("").astype(str).str.strip() != "").mean()
+    check(fuel >= min_share,
+          f"Only {fuel:.0%} of {len(gens)} live generating units have a fuel category "
+          f"(expected >= {min_share:.0%}) — registration list not read?")
+    capacity = pd.to_numeric(gens["CAPACITY_MW"], errors="coerce").notna().mean()
+    check(capacity >= min_share,
+          f"Only {capacity:.0%} of {len(gens)} live generating units have a capacity "
+          f"(expected >= {min_share:.0%}) — registration list not read?")
 
 
 def check_against_final_workbook(df, min_gen_match=0.95, min_bdu_match=0.9):

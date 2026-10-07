@@ -5,7 +5,7 @@ import io
 import logging
 import time
 import zipfile
-from datetime import datetime, timedelta
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -29,13 +29,19 @@ DUDETAILSUMMARY_COLUMNS = [
 ]
 
 
-def get_latest_available_month() -> tuple[int, int] | None:
+def months_to_probe(today: date, count: int = 4) -> list[tuple[int, int]]:
+    """This calendar month and the `count - 1` before it, newest first.
+
+    Steps by calendar month, not by 30 days: on 31 March, 30-day steps land on 1 March
+    and then 30 January, so February was never probed and a month-older archive was used.
+    """
+    index = today.year * 12 + (today.month - 1)
+    return [((index - k) // 12, (index - k) % 12 + 1) for k in range(count)]
+
+
+def get_latest_available_month(today: date | None = None) -> tuple[int, int] | None:
     """Probe AEMO directory listing to find the newest published month."""
-    now = datetime.now()
-    for months_back in range(0, 4):
-        probe_date = now - timedelta(days=30 * months_back)
-        year = probe_date.year
-        month = probe_date.month
+    for year, month in months_to_probe(today or date.today()):
         url = f"{config.MMSDM_BASE_URL}{year:04d}/MMSDM_{year:04d}_{month:02d}/"
         for attempt in range(config.MAX_RETRIES):
             try:
