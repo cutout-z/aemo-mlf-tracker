@@ -1,9 +1,12 @@
 """Download and parse AEMO's draft/indicative MLFs for the upcoming financial year."""
 
+import datetime as _dt
+import hashlib
 import logging
 import re
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pandas as pd
 import requests
@@ -75,16 +78,48 @@ def get_indicative_fy() -> tuple[int, str, str]:
     return next_fy, fy_label, fy_folder
 
 
+def _redirected_to_404(resp) -> bool:
+    """True when AEMO answered with its "page not found" redirect.
+
+    AEMO redirects a missing media file (302) to https://aemo.com.au/404, and that page
+    sits behind a Cloudflare challenge that answers 403. So the status code cannot tell
+    "not published (yet)" from "blocked"; the redirect chain can.
+    """
+    def is_404(url) -> bool:
+        return bool(url) and urlparse(str(url)).path.rstrip("/").lower() == "/404"
+
+    if is_404(getattr(resp, "url", None)):
+        return True
+    return any(is_404((getattr(hop, "headers", None) or {}).get("Location"))
+               for hop in (getattr(resp, "history", None) or []))
+
+
+def _file_record(path: Path) -> dict:
+    """SHA-1 and local date of a workbook in use, for the run status record."""
+    return {
+        "sha1": hashlib.sha1(path.read_bytes()).hexdigest(),
+        "file_date": _dt.date.fromtimestamp(path.stat().st_mtime).isoformat(),
+    }
+
+
 def _download_mlf_excel(
-    url: str, cache_path: Path, fy_label: str, col_name: str, required: bool = False
+    url: str, cache_path: Path, fy_label: str, col_name: str, required: bool = False,
+    status: dict | None = None,
 ) -> pd.DataFrame | None:
     """Shared downloader for draft and final MLF Excel files.
 
-    A 404 means AEMO hasn't published the workbook yet and returns None — unless
-    `required`, when it is an error. Any other non-200 response (AEMO's Cloudflare
-    answers scripted fetches with 403), a network failure, or a body that isn't an
-    xlsx raises, so a blocked fetch can never silently drop a column.
+    "Not published" is a 404, or AEMO's redirect to /404 (whose challenge page answers
+    403): it returns None, unless `required`, when it is an error that says the file
+    is missing. Any other non-200 response (AEMO's Cloudflare answers scripted fetches
+    with 403 at times), a network failure, or a body that isn't an xlsx is "blocked"
+    and raises, so a blocked fetch can never silently drop a column.
+
+    `status`, when given, is filled with what happened: state (published,
+    not_published, blocked or unreadable), url, source (download or cache), AEMO's
+    Last-Modified, the file's SHA-1 and a detail message.
     """
+    rec = status if status is not None else {}
+    rec.update({"fy": fy_label, "url": url})
     if not cache_path.exists():
         logger.info(f"Downloading MLF Excel from {url} ...")
         for attempt in range(config.MAX_RETRIES):
@@ -96,30 +131,48 @@ def _download_mlf_excel(
                 )
             except requests.RequestException as e:
                 if last_attempt:
+                    rec.update(state="blocked", detail=f"network error: {e}")
                     raise RuntimeError(f"Could not download MLF Excel {url}: {e}") from e
                 wait = config.RETRY_BACKOFF * (attempt + 1)
                 logger.warning(f"Download failed (attempt {attempt + 1}): {e}. Retrying in {wait}s...")
                 time.sleep(wait)
                 continue
-            if resp.status_code == 404 and not required:
-                logger.info(f"MLF Excel not yet published (404): {url}")
-                return None
+            if resp.status_code == 404 or _redirected_to_404(resp):
+                how = "HTTP 404" if resp.status_code == 404 else "redirected to /404"
+                rec.update(state="not_published", detail=f"not on AEMO ({how})")
+                if not required:
+                    logger.info(f"MLF Excel not yet published ({how}): {url}")
+                    return None
+                raise RuntimeError(
+                    f"MLF Excel not found on AEMO ({how}) — published under a new name? {url}"
+                )
             if resp.status_code >= 500 and not last_attempt:
                 wait = config.RETRY_BACKOFF * (attempt + 1)
                 logger.warning(f"HTTP {resp.status_code} (attempt {attempt + 1}). Retrying in {wait}s...")
                 time.sleep(wait)
                 continue
             if resp.status_code != 200:
-                raise RuntimeError(f"MLF Excel download returned HTTP {resp.status_code}: {url}")
+                rec.update(state="blocked", detail=f"HTTP {resp.status_code}")
+                raise RuntimeError(f"MLF Excel download returned HTTP {resp.status_code} (blocked?): {url}")
             if not resp.content.startswith(b"PK"):
+                rec.update(state="blocked", detail="HTTP 200 but not an xlsx (challenge page?)")
                 raise RuntimeError(f"MLF Excel download is not an xlsx (challenge page?): {url}")
             cache_path.write_bytes(resp.content)
+            rec.update(source="download",
+                       last_modified=(getattr(resp, "headers", None) or {}).get("Last-Modified"))
             logger.info(f"Downloaded ({len(resp.content) / 1024:.0f} KB) → {cache_path.name}")
             break
+    else:
+        rec.update(source="cache", last_modified=None)
+    rec.update(_file_record(cache_path))
 
     result = _parse_mlf_excel(cache_path, fy_label, col_name)
-    if result is None and required:
-        raise RuntimeError(f"No MLFs parsed from {cache_path} (delete it to re-download)")
+    if result is None:
+        rec.update(state="unreadable", detail=f"no MLFs parsed from {cache_path.name}")
+        if required:
+            raise RuntimeError(f"No MLFs parsed from {cache_path} (delete it to re-download)")
+        return None
+    rec.update(state="published", detail=None)
     return result
 
 
@@ -233,21 +286,23 @@ def _parse_mlf_excel(xlsx_path: Path, fy_label: str, col_name: str) -> pd.DataFr
     return result
 
 
-def download_draft_mlfs(cache_dir: str) -> pd.DataFrame | None:
+def download_draft_mlfs(cache_dir: str, status: dict | None = None) -> pd.DataFrame | None:
     """Download and parse AEMO's draft MLF Excel for the next FY.
 
     Returns DataFrame with columns [DUID, REGIONID, INDICATIVE_MLF], or None if not
-    yet published (404); raises on any other download failure.
+    yet published (404 or AEMO's redirect to /404); raises on any other download failure.
     """
     cache_path = Path(cache_dir)
     cache_path.mkdir(parents=True, exist_ok=True)
     next_fy, fy_label, fy_folder = get_indicative_fy()
     url = DRAFT_MLF_URL.format(fy_folder=fy_folder, fy_label=fy_label)
     xlsx_path = cache_path / f"draft_mlf_{fy_label}.xlsx"
-    return _download_mlf_excel(url, xlsx_path, fy_label, "INDICATIVE_MLF")
+    return _download_mlf_excel(url, xlsx_path, fy_label, "INDICATIVE_MLF", status=status)
 
 
-def download_final_mlfs(cache_dir: str, full_refresh: bool = False) -> pd.DataFrame | None:
+def download_final_mlfs(
+    cache_dir: str, full_refresh: bool = False, status: dict | None = None
+) -> pd.DataFrame | None:
     """Download and parse AEMO's final MLF Excel for the current FY (published each April).
 
     AEMO loads final MLFs into DUDETAILSUMMARY only on July 1. This function reads
@@ -272,7 +327,7 @@ def download_final_mlfs(cache_dir: str, full_refresh: bool = False) -> pd.DataFr
 
     # FY_END only rolls over in April, once the final workbook is due, so a missing
     # workbook is an error rather than a reason to show last year's MLFs.
-    return _download_mlf_excel(url, xlsx_path, fy_label, "FINAL_MLF", required=True)
+    return _download_mlf_excel(url, xlsx_path, fy_label, "FINAL_MLF", required=True, status=status)
 
 
 
@@ -292,7 +347,9 @@ def dudetail_covers_fy(detail_df: pd.DataFrame, fy_start: int) -> bool:
     return bool(((starts >= begin) & (starts < end)).any())
 
 
-def fetch_mlf_workbooks(cache_dir: str, detail_df: pd.DataFrame, full_refresh: bool = False):
+def fetch_mlf_workbooks(
+    cache_dir: str, detail_df: pd.DataFrame, full_refresh: bool = False, status: dict | None = None
+):
     """Fetch the final and draft MLF workbooks under the lane's failure policy.
 
     - Final workbook: required while it is the ONLY source of the current FY's MLFs
@@ -302,13 +359,21 @@ def fetch_mlf_workbooks(cache_dir: str, detail_df: pd.DataFrame, full_refresh: b
       scripted requests with 403 at times) is logged and the run continues on
       DUDETAILSUMMARY alone.
     - Draft workbook: indicative only, so a failed fetch is logged and the draft
-      column is left out; it never blocks the published final values.
+      column is left out; it never blocks the published final values. "Not published"
+      (AEMO's redirect to /404) is expected most of the year and only logged; a blocked
+      fetch is a warning.
+
+    `status`, when given, gets "final_workbook" and "draft_workbook" records (see
+    _download_mlf_excel) for outputs/run_status.json.
 
     Returns (final_excel, indicative); either may be None.
     """
+    status = status if status is not None else {}
+    final_rec = status.setdefault("final_workbook", {})
+    draft_rec = status.setdefault("draft_workbook", {})
     covered = dudetail_covers_fy(detail_df, config.FY_END)
     try:
-        final_excel = download_final_mlfs(cache_dir, full_refresh=full_refresh)
+        final_excel = download_final_mlfs(cache_dir, full_refresh=full_refresh, status=final_rec)
     except RuntimeError as e:
         if not covered:
             raise
@@ -318,7 +383,7 @@ def fetch_mlf_workbooks(cache_dir: str, detail_df: pd.DataFrame, full_refresh: b
         )
         final_excel = None
     try:
-        indicative = download_draft_mlfs(cache_dir)
+        indicative = download_draft_mlfs(cache_dir, status=draft_rec)
     except RuntimeError as e:
         logger.warning(f"Draft MLF workbook unavailable ({e}); the draft column is left out of this run")
         indicative = None

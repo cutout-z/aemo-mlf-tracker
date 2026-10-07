@@ -8,9 +8,20 @@ from src import config, indicative
 
 
 class _Resp:
-    def __init__(self, status_code: int, content: bytes = b""):
+    def __init__(self, status_code: int, content: bytes = b"", url: str = "", history=(), headers=None):
         self.status_code = status_code
         self.content = content
+        self.url = url
+        self.history = list(history)
+        self.headers = headers or {}
+
+
+def _aemo_missing_file():
+    """What AEMO serves for a media file that doesn't exist: 302 to /404, and the /404
+    page is a Cloudflare challenge answering 403."""
+    hop = _Resp(302, headers={"Location": "https://aemo.com.au/404"})
+    return _Resp(403, b"<!DOCTYPE html><title>Just a moment...</title>",
+                 url="https://aemo.com.au/404", history=[hop])
 
 
 @pytest.fixture
@@ -67,7 +78,7 @@ def test_final_workbook_downloads_and_parses(fake_get, tmp_path):
     assert final.set_index("DUID").loc["SOLAR1", "FINAL_MLF"] == pytest.approx(0.95)
 
 
-# --- Draft workbook: optional, but only a genuine 404 means "not published" ------
+# --- Draft workbook: optional; a 404 or AEMO's redirect to /404 means "not published" --
 
 def test_draft_workbook_404_is_not_yet_published(fake_get, tmp_path):
     fake_get(_Resp(404))
@@ -76,8 +87,50 @@ def test_draft_workbook_404_is_not_yet_published(fake_get, tmp_path):
 
 def test_draft_workbook_403_fails(fake_get, tmp_path):
     fake_get(_Resp(403))
+    status = {}
     with pytest.raises(RuntimeError, match="HTTP 403"):
-        indicative.download_draft_mlfs(str(tmp_path))
+        indicative.download_draft_mlfs(str(tmp_path), status=status)
+    assert status["state"] == "blocked"
+
+
+def test_draft_workbook_redirected_to_404_is_not_yet_published(fake_get, tmp_path):
+    # AEMO's answer for a draft that isn't out: before this check it raised "HTTP 403"
+    # and was reported as blocked on every run outside March.
+    fake_get(_aemo_missing_file())
+    status = {}
+    assert indicative.download_draft_mlfs(str(tmp_path), status=status) is None
+    assert status["state"] == "not_published" and "redirected to /404" in status["detail"]
+
+
+def test_relative_redirect_to_404_counts_too(fake_get, tmp_path):
+    hop = _Resp(302, headers={"Location": "/404"})
+    fake_get(_Resp(403, url="https://aemo.com.au/some/other/page", history=[hop]))
+    assert indicative.download_draft_mlfs(str(tmp_path)) is None
+
+
+def test_final_workbook_redirected_to_404_says_missing_not_blocked(fake_get, tmp_path):
+    fake_get(_aemo_missing_file())
+    status = {}
+    with pytest.raises(RuntimeError, match=r"not found on AEMO \(redirected to /404\)"):
+        indicative.download_final_mlfs(str(tmp_path), status=status)
+    assert status["state"] == "not_published"
+
+
+def test_challenge_page_with_200_is_blocked(fake_get, tmp_path):
+    fake_get(_Resp(200, b"<!DOCTYPE html><title>Just a moment...</title>"))
+    status = {}
+    with pytest.raises(RuntimeError, match="not an xlsx"):
+        indicative.download_draft_mlfs(str(tmp_path), status=status)
+    assert status["state"] == "blocked"
+
+
+def test_downloaded_workbook_records_its_edition(fake_get, tmp_path):
+    fake_get(_Resp(200, _xlsx_bytes(tmp_path), headers={"Last-Modified": "Wed, 22 Jul 2026 05:12:00 GMT"}))
+    status = {}
+    indicative.download_final_mlfs(str(tmp_path), status=status)
+    assert status["state"] == "published" and status["source"] == "download"
+    assert status["last_modified"] == "Wed, 22 Jul 2026 05:12:00 GMT"
+    assert status["fy"] == "2026-27" and len(status["sha1"]) == 40
 
 
 # --- Duplicate DUIDs: keep the row that applies from 1 July ---------------------
@@ -180,6 +233,32 @@ def test_blocked_workbooks_are_tolerated_once_dudetail_carries_the_year(fake_get
         final, draft = indicative.fetch_mlf_workbooks(str(tmp_path), _detail("2025-07-01", "2026-07-01"))
     assert final is None and draft is None
     assert "continuing without it" in caplog.text and "draft column is left out" in caplog.text
+
+
+def test_unpublished_draft_is_recorded_without_a_warning(fake_get, tmp_path, monkeypatch, caplog):
+    good = _Resp(200, _xlsx_bytes(tmp_path))
+    monkeypatch.setattr(indicative.requests, "get",
+                        lambda url, **kw: good if "draft" not in url else _aemo_missing_file())
+    status = {}
+    with caplog.at_level("WARNING"):
+        final, draft = indicative.fetch_mlf_workbooks(str(tmp_path), _detail("2025-07-01"), status=status)
+    assert final is not None and draft is None
+    assert status["final_workbook"]["state"] == "published"
+    assert status["draft_workbook"]["state"] == "not_published"
+    assert status["draft_workbook"]["fy"] == "2027-28"
+    assert "draft" not in caplog.text.lower()
+
+
+def test_blocked_draft_is_recorded_and_still_exits_cleanly(fake_get, tmp_path, monkeypatch, caplog):
+    good = _Resp(200, _xlsx_bytes(tmp_path))
+    monkeypatch.setattr(indicative.requests, "get",
+                        lambda url, **kw: good if "draft" not in url else _Resp(403))
+    status = {}
+    with caplog.at_level("WARNING"):
+        final, draft = indicative.fetch_mlf_workbooks(str(tmp_path), _detail("2025-07-01"), status=status)
+    assert final is not None and draft is None
+    assert status["draft_workbook"]["state"] == "blocked"
+    assert "draft column is left out" in caplog.text
 
 
 def test_blocked_draft_never_blocks_a_good_final(fake_get, tmp_path, monkeypatch):
