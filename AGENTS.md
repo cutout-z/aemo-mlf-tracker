@@ -117,7 +117,7 @@ Location: `agent-contracts/facts/AEMO-FACTS.md` (git, `cutout-z/agent-contracts`
 | Live URL | https://cutout-z.github.io/aemo-mlf-tracker/ (README.md) |
 | Stack | Python 3.11 in CI, pandas, openpyxl, requests, pyarrow (`requirements.txt`, `.github/workflows/annual-update.yml`). Page: vanilla JS, PapaParse 5.4.1 and SheetJS 0.18.5 from jsDelivr, compiled Tailwind `assets/css/app.css` (`index.html` lines 7-9) |
 | Production lane | NAS runner (QNAP `ai-wif-runner`), `nas-job aemo-mlf-tracker` runs `deploy/run-update.sh` with `--full-refresh`: pipeline, validator, `git add outputs/`, commit as `aemo-nas-bot`, push `main`, then `python -m src.post_publish_check` (deploy/README.md, deploy/run-update.sh) |
-| Lane schedule | Not in this repo (README.md). Private ops notes list `40 9 15 4 *`, annual 15 April; unverified against the NAS config |
+| Lane schedule | Monthly, on the 8th at 01:00 AWST (NAS crontab `0 1 8 * *`, checked 2026-10-08; not in this repo). The extra 15 April run was dropped on 2026-10-07; the monthly runs include the March run the draft column depends on |
 | Fallback | `.github/workflows/annual-update.yml`, `workflow_dispatch` only; it also commits `outputs/` and pushes |
 | Gitignored | `data/` (caches, workbooks), `tools/` (Tailwind binary), venvs (`.gitignore`) |
 | Downstream | `aemo-generator-credit-dashboard` `src/fetch_mlf.py` fetches `…/aemo-mlf-tracker/outputs/summary.csv` and reads `DUID`, `CONNECTIONPOINTID`, `FYyy-yy`, `FYyy-yy (Draft)` |
