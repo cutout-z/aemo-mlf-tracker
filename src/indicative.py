@@ -286,7 +286,9 @@ def _parse_mlf_excel(xlsx_path: Path, fy_label: str, col_name: str) -> pd.DataFr
     return result
 
 
-def download_draft_mlfs(cache_dir: str, status: dict | None = None) -> pd.DataFrame | None:
+def download_draft_mlfs(
+    cache_dir: str, full_refresh: bool = False, status: dict | None = None
+) -> pd.DataFrame | None:
     """Download and parse AEMO's draft MLF Excel for the next FY.
 
     Returns DataFrame with columns [DUID, REGIONID, INDICATIVE_MLF], or None if not
@@ -297,6 +299,10 @@ def download_draft_mlfs(cache_dir: str, status: dict | None = None) -> pd.DataFr
     next_fy, fy_label, fy_folder = get_indicative_fy()
     url = DRAFT_MLF_URL.format(fy_folder=fy_folder, fy_label=fy_label)
     xlsx_path = cache_path / f"draft_mlf_{fy_label}.xlsx"
+    # AEMO can re-issue a draft under the same URL; a full refresh must pick it up.
+    if full_refresh and xlsx_path.exists():
+        xlsx_path.unlink()
+        logger.info(f"Cleared cached draft MLF Excel for FY{fy_label}")
     return _download_mlf_excel(url, xlsx_path, fy_label, "INDICATIVE_MLF", status=status)
 
 
@@ -383,7 +389,7 @@ def fetch_mlf_workbooks(
         )
         final_excel = None
     try:
-        indicative = download_draft_mlfs(cache_dir, status=draft_rec)
+        indicative = download_draft_mlfs(cache_dir, full_refresh=full_refresh, status=draft_rec)
     except RuntimeError as e:
         logger.warning(f"Draft MLF workbook unavailable ({e}); the draft column is left out of this run")
         indicative = None

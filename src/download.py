@@ -7,6 +7,7 @@ import time
 import zipfile
 from datetime import date
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pandas as pd
 import requests
@@ -39,26 +40,47 @@ def months_to_probe(today: date, count: int = 4) -> list[tuple[int, int]]:
     return [((index - k) // 12, (index - k) % 12 + 1) for k in range(count)]
 
 
+def _not_published(resp) -> bool:
+    """True only when AEMO says the month does not exist: a 404, or a redirect to its /404 page."""
+    def is_404(url) -> bool:
+        return bool(url) and urlparse(str(url)).path.rstrip("/").lower() == "/404"
+
+    return resp.status_code == 404 or is_404(getattr(resp, "url", None)) or any(
+        is_404(hop.url) for hop in getattr(resp, "history", None) or []
+    )
+
+
 def get_latest_available_month(today: date | None = None) -> tuple[int, int] | None:
-    """Probe AEMO directory listing to find the newest published month."""
+    """Probe AEMO directory listing to find the newest published month.
+
+    Only "not found" (404, or a redirect to /404) means a month is not published, and the probe
+    then steps back one month. Any other answer (403, 5xx, a network error) is retried and, if it
+    persists, fails the probe with None -- never silently answered with an older month.
+    """
     for year, month in months_to_probe(today or date.today()):
         url = f"{config.MMSDM_BASE_URL}{year:04d}/MMSDM_{year:04d}_{month:02d}/"
         for attempt in range(config.MAX_RETRIES):
+            last = attempt == config.MAX_RETRIES - 1
             try:
                 resp = requests.head(url, timeout=15, allow_redirects=True)
-                if resp.status_code == 200:
-                    logger.info(f"Latest available month: {year}-{month:02d}")
-                    return (year, month)
-                elif resp.status_code == 404:
-                    break
-                else:
-                    logger.warning(f"Unexpected status {resp.status_code} for {url}")
-                    break
             except requests.RequestException as e:
-                if attempt < config.MAX_RETRIES - 1:
-                    time.sleep(config.RETRY_BACKOFF * (attempt + 1))
-                else:
-                    logger.error(f"Failed to probe {url}: {e}")
+                if last:
+                    logger.error(f"Failed to probe {url}: {e}; not stepping back to an older month")
+                    return None
+                time.sleep(config.RETRY_BACKOFF * (attempt + 1))
+                continue
+            if _not_published(resp):
+                break  # this month isn't out yet, try the one before
+            if resp.status_code == 200:
+                logger.info(f"Latest available month: {year}-{month:02d}")
+                return (year, month)
+            if last:
+                logger.error(
+                    f"Unexpected status {resp.status_code} for {url}; not stepping back to an older month"
+                )
+                return None
+            logger.warning(f"Unexpected status {resp.status_code} for {url}, retrying")
+            time.sleep(config.RETRY_BACKOFF * (attempt + 1))
     logger.error("Could not determine latest available month from AEMO")
     return None
 

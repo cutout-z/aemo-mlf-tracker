@@ -267,3 +267,13 @@ def test_blocked_draft_never_blocks_a_good_final(fake_get, tmp_path, monkeypatch
                         lambda url, **kw: good if "draft" not in url else _Resp(403))
     final, draft = indicative.fetch_mlf_workbooks(str(tmp_path), _detail("2025-07-01"))
     assert final is not None and draft is None
+
+
+def test_draft_workbook_cache_is_kept_normally_but_refetched_on_full_refresh(fake_get, tmp_path):
+    cached = tmp_path / "draft_mlf_2027-28.xlsx"
+    cached.write_bytes(_xlsx_bytes(tmp_path))
+    calls = fake_get(_Resp(200, _xlsx_bytes(tmp_path)))
+    indicative.download_draft_mlfs(str(tmp_path))
+    assert calls == [], "a plain run reuses the cached draft"
+    indicative.download_draft_mlfs(str(tmp_path), full_refresh=True)
+    assert len(calls) == 1, "--full-refresh must re-fetch a re-issued draft"

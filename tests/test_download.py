@@ -33,3 +33,40 @@ def test_latest_month_on_31_march_finds_february(monkeypatch):
     assert download.get_latest_available_month(date(2027, 3, 31)) == (2027, 2)
     assert [u.rsplit("/", 2)[-2] for u in probed] == ["MMSDM_2027_03", "MMSDM_2027_02"]
     assert all(u.startswith(config.MMSDM_BASE_URL) for u in probed)
+
+
+class _Resp:
+    def __init__(self, status_code, url="", history=()):
+        self.status_code, self.url, self.history = status_code, url, list(history)
+
+
+def _probe(monkeypatch, answers):
+    """Run the probe on 31 March 2027; answers(url) -> response or exception."""
+    monkeypatch.setattr(download.time, "sleep", lambda s: None)
+
+    def head(url, **kwargs):
+        r = answers(url)
+        if isinstance(r, Exception):
+            raise r
+        return r
+    monkeypatch.setattr(download.requests, "head", head)
+    return download.get_latest_available_month(date(2027, 3, 31))
+
+
+@pytest.mark.parametrize("status", [403, 500, 503])
+def test_probe_does_not_step_back_on_a_blocked_or_server_error(monkeypatch, status):
+    older_ok = lambda url: _Resp(200) if "MMSDM_2027_02/" in url else _Resp(status)
+    assert _probe(monkeypatch, older_ok) is None
+
+
+def test_probe_does_not_step_back_on_a_network_error(monkeypatch):
+    err = download.requests.ConnectionError("down")
+    assert _probe(monkeypatch, lambda url: err if "MMSDM_2027_03/" in url else _Resp(200)) is None
+
+
+def test_probe_steps_back_on_a_redirect_to_the_404_page(monkeypatch):
+    def answers(url):
+        if "MMSDM_2027_03/" in url:
+            return _Resp(403, "https://aemo.com.au/404", history=[_Resp(302, url)])
+        return _Resp(200)
+    assert _probe(monkeypatch, answers) == (2027, 2)
