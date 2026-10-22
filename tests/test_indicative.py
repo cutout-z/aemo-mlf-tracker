@@ -270,7 +270,7 @@ def test_blocked_draft_never_blocks_a_good_final(fake_get, tmp_path, monkeypatch
 
 
 def test_draft_workbook_cache_is_kept_normally_but_refetched_on_full_refresh(fake_get, tmp_path):
-    cached = tmp_path / "draft_mlf_2026-27.xlsx"
+    cached = tmp_path / "draft_mlf_2027-28.xlsx"
     cached.write_bytes(_xlsx_bytes(tmp_path))
     calls = fake_get(_Resp(200, _xlsx_bytes(tmp_path)))
     indicative.download_draft_mlfs(str(tmp_path))
