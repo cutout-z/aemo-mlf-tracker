@@ -59,3 +59,8 @@ def write_mlf_workbook(path, sheets: dict) -> None:
 
 
 GEN_HEADER = ["Generator", "Voltage (kV)", "DUID", "Connection Point ID", "TNI code", "2026-27 MLF", "2025-26 MLF"]
+
+try:  # dev-only: load the fixed Hypothesis profile for every run when Hypothesis is installed
+    import hypothesis_gate  # noqa: F401
+except ImportError:
+    pass
