@@ -51,33 +51,44 @@ def test_bidirectional_export_reaches_fy_row(tlf, sec):
 
 # ----------------------------------------------------------------------------- YoY
 def _fy_frame(per_duid):
+    """per_duid: [(export y0, y1, y2, import y0, y1, y2)] for FY23-24, FY24-25, FY25-26."""
     rows = []
-    for i, (prev, latest, prev_imp, latest_imp) in enumerate(per_duid):
-        for fy_year, m, imp in ((2024, prev, prev_imp), (2025, latest, latest_imp)):
+    for i, t in enumerate(per_duid):
+        for k, fy_year in enumerate((2023, 2024, 2025)):
             rows.append({
                 "DUID": f"DUID{i}", "REGIONID": "NSW1", "CONNECTIONPOINTID": f"CP{i}", "STATIONID": f"ST{i}",
                 "FY": f"FY{fy_year % 100:02d}-{(fy_year + 1) % 100:02d}", "FY_START_YEAR": fy_year,
-                "MLF": m, "IMPORT_MLF": imp,
+                "MLF": t[k], "IMPORT_MLF": t[3 + k],
             })
     return pd.DataFrame(rows)
 
 
-@given(per_duid=st.lists(st.tuples(opt_mlf, opt_mlf, opt_mlf, opt_mlf), min_size=1, max_size=15))
+@given(per_duid=st.lists(st.tuples(*[opt_mlf] * 6), min_size=1, max_size=15))
 def test_yoy_change_is_latest_minus_previous(per_duid):
     nan = float("nan")
     per_duid = [tuple(nan if v is None else v for v in t) for t in per_duid]
-    # An FY column with no MLF at all is dropped by the pivot and no YoY column exists: not the case under test.
-    assume(any(not math.isnan(t[0]) for t in per_duid) and any(not math.isnan(t[1]) for t in per_duid))
-    with mock.patch.object(config, "FY_START", 2024), mock.patch.object(config, "FY_END", 2025):
+    # An all-NaN PREVIOUS FY is dropped by the pivot, so no YoY column exists: not the case under test.
+    # (An all-NaN latest FY still yields NaN YOY_CHANGE: the current FY column is always added.)
+    assume(any(not math.isnan(t[1]) for t in per_duid))
+    with mock.patch.object(config, "FY_START", 2023), mock.patch.object(config, "FY_END", 2025):
         summary = build_summary(_fy_frame(per_duid)).set_index("DUID")
-    for i, (prev, latest, prev_imp, latest_imp) in enumerate(per_duid):
+    # latest = FY25-26 (index 2), previous = FY24-25 (index 1); FY23-24 must not be used
+    for i, t in enumerate(per_duid):
         r = summary.loc[f"DUID{i}"]
+        prev, latest, prev_imp, latest_imp = t[1], t[2], t[4], t[5]
         if math.isnan(prev) or math.isnan(latest):
-            assert pd.isna(r["YOY_CHANGE"])
+            assert pd.isna(r["YOY_CHANGE"]) and pd.isna(r["YOY_PCT_CHANGE"])
         else:
-            assert r["YOY_CHANGE"] == pytest.approx(latest - prev, abs=0.001)
-        if "IMPORT_YOY_CHANGE" in summary.columns:
-            if math.isnan(prev_imp) or math.isnan(latest_imp):
+            change = round(latest - prev, 4)
+            assert r["YOY_CHANGE"] == pytest.approx(change, abs=5.1e-5)
+            assert r["YOY_PCT_CHANGE"] == pytest.approx(round(change / prev * 100, 2), abs=0.0101)
+    both_import = [t for t in per_duid if not (math.isnan(t[4]) or math.isnan(t[5]))]
+    if both_import:
+        assert "IMPORT_YOY_CHANGE" in summary.columns, "import YoY column missing though import MLFs exist"
+    if "IMPORT_YOY_CHANGE" in summary.columns:
+        for i, t in enumerate(per_duid):
+            r = summary.loc[f"DUID{i}"]
+            if math.isnan(t[4]) or math.isnan(t[5]):
                 assert pd.isna(r["IMPORT_YOY_CHANGE"])
             else:
-                assert r["IMPORT_YOY_CHANGE"] == pytest.approx(latest_imp - prev_imp, abs=0.001)
+                assert r["IMPORT_YOY_CHANGE"] == pytest.approx(round(t[5] - t[4], 4), abs=5.1e-5)
