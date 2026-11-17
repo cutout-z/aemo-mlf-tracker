@@ -16,6 +16,13 @@ if ! git pull --ff-only origin main; then
   echo "origin/main is not fast-forwardable (rewritten?) — resetting onto it."
   git reset --hard origin/main
 fi
+# Start from the COMMITTED outputs. A failed or manual run may have left
+# outputs/ edited or holding stray files, and `git add outputs/` below would
+# publish them: the pipeline overwrites only the files it writes (it skips the
+# workbook of a region with no rows). It reads nothing from outputs/, so this
+# changes no input; the gitignored caches in data/ are left alone.
+git checkout HEAD -- outputs/ 2>/dev/null || true
+git clean -fdq -- outputs/
 
 "${PYTHON}" -m src.main ${PIPELINE_ARGS}
 
