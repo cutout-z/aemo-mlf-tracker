@@ -29,7 +29,9 @@ The lane registry, cadence windows and report paths live in
 `deploy/run-update.sh` runs the output validator (`tests/validate_outputs.py`,
 not the pytest suite) and commits/pushes only when `outputs/` changed, and the script self-heals a rewritten `main`: if
 `git pull --ff-only` is impossible it resets onto the fetched remote instead
-of exiting 128.
+of exiting 128. Before the pipeline it restores `outputs/` to the committed files and
+removes any untracked file there, so a failed or manual run's leftovers are never
+published (the gitignored caches in `data/` are left alone).
 
 After the push (or the "no changes" exit) it runs `python -m src.post_publish_check`,
 which reads `outputs/run_status.json` and fails the lane when the run is in March and the
