@@ -237,7 +237,7 @@ Playwright. Done means a real browser shows the tables filled from `summary.csv`
 from `run_status.json`, and no console errors.
 
 ```bash
-cd <repo> && python3 -m pytest -q tests      # baseline 2026-11-17 at c8d15ec: 100 passed with node; 95 passed + 5 skipped without
+cd <repo> && python3 -m pytest -q tests      # baseline 2026-11-17 at 7a2261f: 110 passed with node; 105 passed + 5 skipped without
 cd <repo> && python3 tests/validate_outputs.py  # exit 0 = "All validations passed"
 ```
 - `tests/test_page.py` (5 tests) runs `index.html` functions under `node` and **skips** without it.
@@ -288,7 +288,7 @@ cd <repo> && python3 tests/validate_outputs.py  # exit 0 = "All validations pass
 
 ## Handback checklist
 
-- [ ] `pytest -q tests` result stated as counts (100 passed with node; 95 passed + 5 skipped without); any skip named (node missing?).
+- [ ] `pytest -q tests` result stated as counts (baseline 2026-11-17 at 7a2261f: 110 passed with node; 105 passed + 5 skipped without); any skip named (node missing?).
 - [ ] `tests/validate_outputs.py` exit code stated, and whether the workbook cross-check ran or skipped.
 - [ ] `git diff --stat origin/main` shows no `outputs/**` unless the task was a regeneration the owner asked for.
 - [ ] Any data-contract change named, with the owner's yes and its effect on `src/fetch_mlf.py` downstream.
