@@ -6,7 +6,7 @@ below are generated from the `agent-contracts` repo; where this file's repo-spec
 stricter, they win.
 
 <!-- BEGIN agent-contracts:family -->
-<!-- source: family/AGENTS.family.md sha256:03ed1aa793eb — edit in cutout-z/agent-contracts, not here -->
+<!-- source: family/AGENTS.family.md sha256:70dec07a9b96 — edit in cutout-z/agent-contracts, not here -->
 ## Family conventions (every repo, every agent)
 
 *Generated from `agent-contracts/family/AGENTS.family.md`. Edit it there, never here: a drift check
@@ -138,6 +138,7 @@ handback notes get copied and published.
   branch: <branch>
   pr: <owner/repo#number, one per PR; or none>
   status: <one line>
+  closes: []                      # dashboard To-Do ids (c + 16 hex) this work finishes
   noticed:                        # everything seen and not finished; [] when nothing was
     - "<item> -> done: <evidence>"
     - "<item> -> tracked: <where it will be picked up>"
@@ -148,6 +149,11 @@ handback notes get copied and published.
     - "to-do [mac-local] <item>; blocked on: <what>"   # the words `blocked on:` literally; [mac-local] = the owner's hands or login
   ---
   ```
+
+  **A finished To-Do closes with the work.** When your work finishes a To-Do on the owner's dashboard,
+  name its id (`GET /api/capture` lists the open ones): a line `Closes To-Do: <id>` in the PR body, and
+  the id in `closes:`. The landing script closes each one when the PR merges; with no PR to land, close
+  it yourself (`POST /api/capture/<id>/close` with an `X-Requested-With` header). A To-Do the work only mentions stays open.
 
   Then cover what changed, the evidence, what's left, and any decision the brief didn't cover. A
   `noticed:` item without one of the four dispositions, or an `outstanding:` item that names no
